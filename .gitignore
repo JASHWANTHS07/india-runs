@@ -9,3 +9,18 @@ artifacts/
 *.npy
 *.parquet
 .env
+
+# Data directory (large files, not for version control)
+Data/
+Docs/
+
+# macOS junk
+.DS_Store
+._*
+
+# Logs and local run files
+*.log
+run_precompute.bat
+precompute_err.log
+precompute_run.log
+submission.csv
