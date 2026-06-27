@@ -11,15 +11,22 @@ The --candidates argument is accepted for spec compatibility but not used at run
 """
 
 import argparse
+import sys
 import time
-import numpy as np
-import pandas as pd
 from pathlib import Path
 from dataclasses import fields
+
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.features import CandidateFeatures
 from src.scoring import compute_score
 from src.reasoning import generate_reasoning
+
+
+_FEATURE_FIELDS = {f.name for f in fields(CandidateFeatures)}
 
 
 def load_features(artifacts: Path) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
@@ -30,8 +37,7 @@ def load_features(artifacts: Path) -> tuple[np.ndarray, np.ndarray, pd.DataFrame
 
 
 def df_row_to_features(row: pd.Series) -> CandidateFeatures:
-    field_names = {f.name for f in fields(CandidateFeatures)}
-    kwargs = {k: row[k] for k in field_names if k in row.index}
+    kwargs = {k: row[k] for k in _FEATURE_FIELDS if k in row.index}
     kwargs.setdefault("profile_text", "")
     return CandidateFeatures(**kwargs)
 
@@ -39,6 +45,7 @@ def df_row_to_features(row: pd.Series) -> CandidateFeatures:
 def main(artifacts_dir: str, out_path: str) -> None:
     t0 = time.time()
     artifacts = Path(artifacts_dir)
+    out = Path(out_path)
 
     print("Loading pre-computed artifacts...")
     embeddings, jd_embedding, features_df = load_features(artifacts)
@@ -59,6 +66,10 @@ def main(artifacts_dir: str, out_path: str) -> None:
     # Sort descending by score, break ties by candidate_id ascending
     results.sort(key=lambda x: (-x[0], x[1]))
 
+    # Guard: ensure we have at least 100 candidates
+    if len(results) < 100:
+        raise RuntimeError(f"Only {len(results)} candidates survived scoring; need at least 100.")
+
     # Take top 100
     top100 = results[:100]
 
@@ -73,9 +84,9 @@ def main(artifacts_dir: str, out_path: str) -> None:
             "reasoning": reasoning,
         })
 
-    pd.DataFrame(output_rows).to_csv(out_path, index=False)
+    pd.DataFrame(output_rows).to_csv(out, index=False)
     elapsed = time.time() - t0
-    print(f"Submission written to {out_path} ({elapsed:.1f}s)")
+    print(f"Submission written to {out} ({elapsed:.1f}s)")
 
 
 if __name__ == "__main__":
