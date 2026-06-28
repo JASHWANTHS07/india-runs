@@ -48,8 +48,10 @@ def main(candidates_path: str, artifacts_dir: str) -> None:
     artifacts = Path(artifacts_dir)
     artifacts.mkdir(parents=True, exist_ok=True)
 
-    print(f"Loading model: {MODEL_NAME}")
-    model = SentenceTransformer(MODEL_NAME, device="cuda")
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Loading model: {MODEL_NAME} (device: {device})")
+    model = SentenceTransformer(MODEL_NAME, device=device)
 
     # Embed JD query
     print("Embedding JD query...")
