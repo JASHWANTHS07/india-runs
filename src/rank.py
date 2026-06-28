@@ -4,10 +4,7 @@ CPU ranking step — must complete in ≤5 min, no GPU, no network.
 Usage:
     python src/rank.py \
         --artifacts ./artifacts \
-        --out ./submission.csv
-
-The --candidates argument is accepted for spec compatibility but not used at runtime
-(all data is pre-computed in artifacts/).
+        --out ./jashwanth_s.csv
 """
 
 import argparse
@@ -60,8 +57,9 @@ def main(artifacts_dir: str, out_path: str) -> None:
     results = []
     for i, (_, row) in enumerate(features_df.iterrows()):
         f = df_row_to_features(row)
-        score = compute_score(f, float(semantic_scores[i]))
-        results.append((score, f.candidate_id, f))
+        sim = float(semantic_scores[i])
+        score = compute_score(f, sim)
+        results.append((score, f.candidate_id, f, sim))
 
     # Sort descending by score, break ties by candidate_id ascending
     results.sort(key=lambda x: (-x[0], x[1]))
@@ -75,8 +73,8 @@ def main(artifacts_dir: str, out_path: str) -> None:
 
     # Build submission rows
     output_rows = []
-    for rank_idx, (score, cand_id, f) in enumerate(top100, start=1):
-        reasoning = generate_reasoning(f, rank=rank_idx)
+    for rank_idx, (score, cand_id, f, sim) in enumerate(top100, start=1):
+        reasoning = generate_reasoning(f, rank=rank_idx, semantic_sim=sim)
         output_rows.append({
             "candidate_id": cand_id,
             "rank": rank_idx,
@@ -93,6 +91,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidates", default=None, help="Accepted for spec compat, not used")
     parser.add_argument("--artifacts", default="./artifacts")
-    parser.add_argument("--out", default="./submission.csv")
+    parser.add_argument("--out", default="./jashwanth_s.csv")
     args = parser.parse_args()
     main(args.artifacts, args.out)

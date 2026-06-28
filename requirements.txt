@@ -13,7 +13,7 @@ pytest>=8.0.0
 #     pip install torch
 #
 #   CUDA (local GPU):
-#     pip install torch --index-url https://download.pytorch.org/whl/cu121
+# pip install torch --index-url https://download.pytorch.org/whl/cu121
 #
 #   Google Colab:
 #     Already pre-installed — do NOT reinstall (breaks CUDA build).

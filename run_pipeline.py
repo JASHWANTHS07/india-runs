@@ -58,8 +58,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--out",
-        default="./submission.csv",
-        help="Output submission CSV path (default: ./submission.csv)",
+        default="./jashwanth_s.csv",
+        help="Output submission CSV path (default: ./jashwanth_s.csv)",
     )
     parser.add_argument(
         "--skip-precompute",
