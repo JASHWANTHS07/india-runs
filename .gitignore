@@ -5,13 +5,12 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-artifacts/
 *.npy
 *.parquet
 .env
 
 # Data directory (large files, not for version control)
-Data/
+Data/India_runs_data_and_ai_challenge
 Docs/
 
 # macOS junk
