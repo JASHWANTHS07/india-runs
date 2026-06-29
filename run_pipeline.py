@@ -3,26 +3,32 @@ run_pipeline.py — Full pipeline orchestrator for Redrob hackathon submission.
 
 Steps:
   1. Install dependencies (optional, pass --install)
-  2. Pre-compute  : GPU embed 100K candidates + extract features  (GPU required)
-  3. Rank         : CPU scoring → top-100 submission.csv          (CPU only, <5 min)
+  2. Pre-compute  : GPU embed + BM25 + cross-encoder + features  (GPU required)
+  3. Rank         : XGBoost LTR → top-100 jashwanth_s.csv        (CPU only, <5 min)
 
 Usage on Google Colab (GPU runtime):
-    # Upload this project folder and candidates.jsonl to Colab, then:
-    !python run_pipeline.py \\
-        --candidates "/content/candidates.jsonl" \\
-        --artifacts  "/content/artifacts" \\
-        --out        "/content/submission.csv" \\
+    !python run_pipeline.py \
+        --candidates "dataset/India_runs_data_and_ai_challenge/candidates.jsonl" \
+        --artifacts  "./artifacts" \
+        --out        "./jashwanth_s.csv" \
         --install
 
-Usage locally (after precompute already done):
-    python run_pipeline.py \\
-        --candidates "H:/india_runs/Data/.../candidates.jsonl" \\
-        --artifacts  "./artifacts" \\
-        --out        "./submission.csv" \\
+Sample/sandbox mode (small candidate file, full pipeline):
+    python run_pipeline.py \
+        --run_sample "./sample_candidates.json" \
+        --artifacts  "./artifacts_sample" \
+        --out        "./sample_output.csv"
+
+Skip precompute (if artifacts already exist):
+    python run_pipeline.py \
+        --candidates "candidates.jsonl" \
+        --artifacts  "./artifacts" \
+        --out        "./jashwanth_s.csv" \
         --skip-precompute
 """
 
 import argparse
+import json
 import subprocess
 import sys
 import time
@@ -42,14 +48,64 @@ def run(cmd: list[str], step: str) -> None:
     print(f"\n[OK] {step} — {elapsed:.1f}s")
 
 
+def convert_sample_to_jsonl(sample_path: str, output_path: str) -> str:
+    """
+    Convert a sample JSON or JSONL file to a standardized JSONL file.
+    Accepts:
+      - .json  (single object or array of objects)
+      - .jsonl (one JSON object per line)
+    Returns path to the JSONL file.
+    """
+    sample = Path(sample_path)
+    out = Path(output_path)
+
+    if sample.suffix == ".jsonl":
+        # Already JSONL — just verify it's valid and copy
+        candidates = []
+        with open(sample, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    candidates.append(json.loads(line))
+    elif sample.suffix == ".json":
+        with open(sample, "r") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            candidates = data
+        elif isinstance(data, dict):
+            # Single candidate or wrapper object
+            if "candidates" in data:
+                candidates = data["candidates"]
+            else:
+                candidates = [data]
+        else:
+            raise ValueError(f"Unexpected JSON structure in {sample_path}")
+    else:
+        raise ValueError(f"Unsupported file format: {sample.suffix} (use .json or .jsonl)")
+
+    # Write as JSONL
+    with open(out, "w") as f:
+        for cand in candidates:
+            f.write(json.dumps(cand) + "\n")
+
+    print(f"  Sample: {len(candidates)} candidates from {sample_path}")
+    return str(out)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Redrob hackathon pipeline: precompute (GPU) → rank (CPU) → submission.csv"
+        description="Redrob hackathon pipeline: precompute (GPU) → rank (CPU) → submission CSV"
     )
     parser.add_argument(
         "--candidates",
-        required=True,
-        help="Path to candidates.jsonl or candidates.jsonl.gz",
+        default=None,
+        help="Path to candidates.jsonl or candidates.jsonl.gz (full 100K dataset)",
+    )
+    parser.add_argument(
+        "--run_sample",
+        default=None,
+        help="Path to a small sample file (.json or .jsonl) for sandbox/demo mode. "
+             "Runs the full pipeline on this sample instead of the full dataset.",
     )
     parser.add_argument(
         "--artifacts",
@@ -69,17 +125,33 @@ def main() -> None:
     parser.add_argument(
         "--install",
         action="store_true",
-        help="Run pip install -r requirements.txt before starting",
+        help="Run pip install of dependencies before starting",
     )
     args = parser.parse_args()
 
     python = sys.executable
     artifacts = Path(args.artifacts)
 
-    if args.install:
-        run([python, "-m", "pip", "install", "-r", "requirements.txt"], "Installing dependencies")
+    # Determine candidate source
+    if args.run_sample:
+        # Sample mode — convert to JSONL and use that
+        sample_jsonl = str(artifacts / "_sample.jsonl")
+        artifacts.mkdir(parents=True, exist_ok=True)
+        candidates_path = convert_sample_to_jsonl(args.run_sample, sample_jsonl)
+        skip_precompute = False
+    elif args.candidates:
+        candidates_path = args.candidates
+        skip_precompute = args.skip_precompute
+    else:
+        parser.error("Either --candidates or --run_sample is required.")
 
-    if args.skip_precompute:
+    if args.install:
+        run(
+            [python, "-m", "pip", "install", "-r", "requirements.txt"],
+            "Installing dependencies",
+        )
+
+    if skip_precompute:
         required = [
             artifacts / "embeddings.npy",
             artifacts / "jd_embedding.npy",
@@ -94,26 +166,25 @@ def main() -> None:
         run(
             [
                 python, "src/precompute.py",
-                "--candidates", args.candidates,
-                "--artifacts", args.artifacts,
+                "--candidates", candidates_path,
+                "--artifacts", str(artifacts),
             ],
-            "Step 1/2: Pre-computation (GPU — embeds 100K candidates)",
+            "Step 1/2: Pre-computation (GPU — embeds + BM25 + cross-encoder + features)",
         )
 
     run(
         [
             python, "src/rank.py",
-            "--artifacts", args.artifacts,
+            "--artifacts", str(artifacts),
             "--out", args.out,
         ],
-        "Step 2/2: Ranking (CPU — scores candidates, outputs top 100)",
+        "Step 2/2: Ranking (CPU — XGBoost LTR → top 100)",
     )
 
     print(f"\n{'='*60}")
     print(f"  DONE")
     print(f"  Submission: {Path(args.out).resolve()}")
     print(f"{'='*60}\n")
-    print("Next: upload submission.csv to the Redrob portal.")
 
 
 if __name__ == "__main__":
