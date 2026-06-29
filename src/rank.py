@@ -84,7 +84,7 @@ def create_pseudo_labels(df: pd.DataFrame) -> np.ndarray:
       1 = Weak        (adjacent title or weak signals)
       0 = Irrelevant  (non-tech, honeypot, stuffer, consulting-only)
     """
-    labels = np.ones(len(df), dtype=np.float32)  # Default: weak
+    labels = np.ones(len(df), dtype=np.int32)  # Default: weak (grade 1)
 
     for i in range(len(df)):
         row = df.iloc[i]
@@ -126,7 +126,7 @@ def create_pseudo_labels(df: pd.DataFrame) -> np.ndarray:
         if tier >= 3 and ai_mo >= 24 and has_product:
             labels[i] = 3
             if cross_enc >= 0.5:
-                labels[i] = 3.5  # Cross-encoder confirms strong match
+                labels[i] = 4  # Cross-encoder confirms → promote to grade 4
             continue
 
         # Grade 2: moderate fit
@@ -144,7 +144,7 @@ def create_pseudo_labels(df: pd.DataFrame) -> np.ndarray:
 
         # Everything else stays at default 1 or drops
         if tier <= 1:
-            labels[i] = 0.5
+            labels[i] = 0
         else:
             labels[i] = 1
 
@@ -159,26 +159,29 @@ def train_ltr_model(X: np.ndarray, y: np.ndarray):
         print("  [WARN] xgboost not installed, falling back to heuristic scoring")
         return None
 
-    # Use rank:pairwise for learning-to-rank
+    # All candidates belong to a single query group
     dtrain = xgb.DMatrix(X, label=y)
+    dtrain.set_group([len(y)])
+    print(f"  DMatrix: {X.shape[0]} samples, {X.shape[1]} features, group=[{len(y)}]")
 
     params = {
-        "objective": "rank:pairwise",
+        "objective": "rank:ndcg",
         "eval_metric": "ndcg@10",
-        "eta": 0.1,
-        "max_depth": 6,
-        "min_child_weight": 10,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
-        "lambda": 1.0,
-        "alpha": 0.1,
+        "eta": 0.05,
+        "max_depth": 5,
+        "min_child_weight": 50,
+        "subsample": 0.7,
+        "colsample_bytree": 0.7,
+        "gamma": 1.0,
+        "lambda": 5.0,
+        "alpha": 0.5,
         "seed": 42,
         "verbosity": 0,
     }
 
     model = xgb.train(
         params, dtrain,
-        num_boost_round=200,
+        num_boost_round=300,
         evals=[(dtrain, "train")],
         verbose_eval=50,
     )
@@ -249,10 +252,12 @@ def main(artifacts_dir: str, out_path: str) -> None:
         dtest = xgb.DMatrix(X_np)
         ltr_scores = ltr_model.predict(dtest)
 
-        # Normalize LTR scores to [0, 1] with good spread
-        ltr_min, ltr_max = ltr_scores.min(), ltr_scores.max()
-        ltr_range = ltr_max - ltr_min if ltr_max > ltr_min else 1.0
-        final_scores = (ltr_scores - ltr_min) / ltr_range
+        # Normalize LTR scores to (0, 1) using rank-based percentile mapping
+        # This avoids ties at 0.0/1.0 that min-max normalization creates
+        order = ltr_scores.argsort()
+        ranks = np.empty_like(order, dtype=np.float32)
+        ranks[order] = np.arange(1, len(order) + 1, dtype=np.float32)
+        final_scores = ranks / (len(ranks) + 1)  # maps to (0, 1), no boundary ties
 
         # Apply honeypot zero-out AFTER LTR (hard override)
         for i, f in enumerate(feature_objects):

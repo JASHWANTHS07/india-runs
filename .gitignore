@@ -12,6 +12,7 @@ build/
 # Data directory (large files, not for version control)
 Data/India_runs_data_and_ai_challenge
 Docs/
+artifacts_01/
 
 # macOS junk
 .DS_Store
