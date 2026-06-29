@@ -123,6 +123,11 @@ def main() -> None:
         help="Skip pre-computation if artifacts already exist",
     )
     parser.add_argument(
+        "--cpu",
+        action="store_true",
+        help="Force CPU-only mode (no GPU). Useful for sandbox/demo.",
+    )
+    parser.add_argument(
         "--install",
         action="store_true",
         help="Run pip install of dependencies before starting",
@@ -131,6 +136,12 @@ def main() -> None:
 
     python = sys.executable
     artifacts = Path(args.artifacts)
+
+    # Force CPU if requested
+    if args.cpu:
+        import os
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+        print("[INFO] Forced CPU-only mode (CUDA_VISIBLE_DEVICES='')")
 
     # Determine candidate source
     if args.run_sample:
