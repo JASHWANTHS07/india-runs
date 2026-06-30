@@ -1,0 +1,16 @@
+{
+  "params": {
+    "framework": "xgboost",
+    "xgb_objective": "rank:pairwise",
+    "lr": 0.07692295482798014,
+    "max_depth": 4,
+    "min_child_weight": 6,
+    "subsample": 0.7187780787390288,
+    "colsample_bytree": 0.9748924575349367,
+    "gamma": 1.08761471103036,
+    "reg_lambda": 0.6275046207790965,
+    "reg_alpha": 0.41929201248492565
+  },
+  "n_rounds": 19,
+  "val_ndcg10": 1.0
+}

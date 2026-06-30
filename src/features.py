@@ -18,7 +18,7 @@ _TITLE_KEYWORDS_T4 = [
     "ai research engineer", "lead ai engineer", "staff machine learning",
     "senior machine learning", "senior ai engineer", "senior ml engineer",
     "senior nlp engineer", "senior data scientist", "senior applied scientist",
-    "junior ml engineer", "senior software engineer (ml)",
+    "senior software engineer (ml)",
     "machine learning", "artificial intelligence",
 ]
 
@@ -30,6 +30,7 @@ _TITLE_KEYWORDS_T3 = [
 ]
 
 _TITLE_KEYWORDS_T2 = [
+    "junior ml engineer", "junior data scientist", "junior ai engineer",
     "devops engineer", "cloud engineer", "frontend engineer",
     "qa engineer", "mobile developer", "java developer",
     ".net developer", "ios developer", "android developer",
@@ -206,6 +207,9 @@ class CandidateFeatures:
     endorsements_total: int
     connection_count: int
     offer_acceptance_rate: float
+    consulting_months: int
+    product_months: int
+    technical_yoe: float
     timeline_impossible: bool
     expert_zero_usage_count: int
     profile_text: str = ""
@@ -257,6 +261,8 @@ def extract_features(candidate):
     career_retrieval_months = 0
     product_ai_months = 0
     total_career_months = 0
+    consulting_months = 0
+    product_months = 0
 
     for role in career:
         desc = (role.get("description") or "").lower()
@@ -264,6 +270,10 @@ def extract_features(candidate):
         total_career_months += duration
         company = role.get("company") or ""
         is_product_co = not _company_is_consulting(company)
+        if is_product_co:
+            product_months += duration
+        else:
+            consulting_months += duration
         has_ai = _text_has_any(desc, AI_ML_KEYWORDS)
         has_prod = _text_has_any(desc, PRODUCTION_KEYWORDS)
         has_vec = _text_has_any(desc, VECTOR_SEARCH_KEYWORDS)
@@ -281,6 +291,7 @@ def extract_features(candidate):
 
     career_ai_depth_ratio = ai_ml_months / max(1, total_career_months)
     has_product_ai_career = product_ai_months > 12
+    technical_yoe = product_months / 12.0
 
     total_score = 0.0
     top_matched_skill = None
@@ -452,6 +463,9 @@ def extract_features(candidate):
         endorsements_total=endorsements_total_val,
         connection_count=connection_count_val,
         offer_acceptance_rate=offer_accept,
+        consulting_months=consulting_months,
+        product_months=product_months,
+        technical_yoe=technical_yoe,
         timeline_impossible=timeline_impossible,
         expert_zero_usage_count=expert_zero_count,
         profile_text=profile_text,

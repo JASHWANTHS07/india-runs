@@ -128,6 +128,12 @@ def main() -> None:
         help="Force CPU-only mode (no GPU). Useful for sandbox/demo.",
     )
     parser.add_argument(
+        "--method",
+        default="heuristic",
+        choices=["heuristic", "xgboost"],
+        help="Ranking method: 'heuristic' (original) or 'xgboost' (LTR)",
+    )
+    parser.add_argument(
         "--install",
         action="store_true",
         help="Run pip install of dependencies before starting",
@@ -183,14 +189,13 @@ def main() -> None:
             "Step 1/2: Pre-computation (GPU — embeds + BM25 + cross-encoder + features)",
         )
 
-    run(
-        [
-            python, "src/rank.py",
-            "--artifacts", str(artifacts),
-            "--out", args.out,
-        ],
-        "Step 2/2: Ranking (CPU — XGBoost LTR → top 100)",
-    )
+    rank_cmd = [
+        python, "src/rank.py",
+        "--artifacts", str(artifacts),
+        "--out", args.out,
+        "--method", args.method,
+    ]
+    run(rank_cmd, f"Step 2/2: Ranking (CPU — {args.method} → top 100)")
 
     print(f"\n{'='*60}")
     print(f"  DONE")

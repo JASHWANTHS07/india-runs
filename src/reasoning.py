@@ -34,6 +34,8 @@ def _build_lead(f):
         cd = "with multiple production ML deployments"
     else:
         cd = "with " + yoe_str + " years of experience"
+    if hasattr(f, 'technical_yoe') and abs(f.technical_yoe - f.yoe) > 1.0:
+        cd += " (" + str(round(f.technical_yoe, 1)) + " years non-consulting out of " + yoe_str + " total)"
     lead = str(f.current_title) + " at " + str(f.current_company) + " " + cd
     if f.top_matched_skill and f.jd_tier1_skill_count >= 2:
         lead += "; core competency in " + str(f.top_matched_skill)

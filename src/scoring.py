@@ -37,13 +37,13 @@ def career_depth_score(f):
     return min(1.0, depth + retrieval_bonus + shipped_bonus + product_ai_bonus + vec_bonus)
 
 
-def experience_fit_score(yoe):
-    if 5.0 <= yoe <= 9.0:
-        return math.exp(-0.5 * ((yoe - 7.0) / 1.5) ** 2)
-    elif yoe < 5.0:
-        return max(0.15, (yoe / 5.0) * 0.6)
+def experience_fit_score(technical_yoe):
+    if 5.0 <= technical_yoe <= 9.0:
+        return math.exp(-0.5 * ((technical_yoe - 7.0) / 1.5) ** 2)
+    elif technical_yoe < 5.0:
+        return max(0.05, (technical_yoe / 5.0) * 0.3)
     else:
-        return max(0.15, 1.0 - (yoe - 9.0) / 8.0)
+        return max(0.15, 1.0 - (technical_yoe - 9.0) / 8.0)
 
 
 def skills_quality_score(f):
@@ -112,13 +112,15 @@ def compute_score(f, semantic_sim):
         return relevance * 0.01
     sem_fit = max(0.0, semantic_sim)
     skills_fit = skills_quality_score(f)
-    exp_fit = experience_fit_score(f.yoe)
+    exp_fit = experience_fit_score(f.technical_yoe)
     retrieval_fit = min(1.0, f.career_retrieval_months / 30)
     technical = 0.25 * sem_fit + 0.30 * skills_fit + 0.15 * exp_fit + 0.30 * retrieval_fit
     behav = behavioral_score(f)
     avail = availability_modifier(f)
     base = (0.40 * relevance + 0.40 * technical + 0.20 * behav) * avail
-    if f.is_consulting_only and f.yoe > 3.0:
+    if f.technical_yoe < 5.0:
+        base *= 0.05
+    if f.is_consulting_only and f.technical_yoe > 3.0:
         base *= 0.10
     if f.non_tech_title_with_ai_skills and f.ai_ml_months < 12:
         base *= 0.05
