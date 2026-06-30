@@ -51,6 +51,17 @@ LTR_FEATURE_COLS = [
     "saved_by_recruiters", "profile_views_30d", "avg_response_time_hours",
     "verified_count", "endorsements_total", "connection_count",
     "offer_acceptance_rate", "timeline_impossible", "expert_zero_usage_count",
+    # Education features
+    "has_cs_degree", "highest_degree_level", "education_ai_relevance", "education_recency",
+    # Certification features
+    "cert_count", "ml_cert_count", "cert_recency",
+    # Career trajectory features
+    "ai_title_count", "title_progression", "avg_tenure_months", "num_roles",
+    "max_company_size_ord", "current_company_size_ord",
+    # Skill breadth features
+    "total_skill_count", "avg_skill_proficiency", "endorsed_skill_ratio", "skill_keyword_density",
+    # Work mode & platform features
+    "work_mode_match", "search_appearance_30d", "salary_range_width", "platform_tenure_days",
     # Retrieval scores (added during precompute)
     "semantic_sim", "bm25_score", "cross_encoder_score",
     # Derived from heuristic scoring

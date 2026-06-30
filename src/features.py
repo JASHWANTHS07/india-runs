@@ -158,6 +158,41 @@ PROFICIENCY_WEIGHTS = {
     "beginner": 0.25,
 }
 
+DEGREE_LEVEL_KEYWORDS = {
+    4: ["phd", "ph.d", "doctorate", "doctoral"],
+    3: ["master", "m.tech", "m.s.", "m.sc", "mtech", "ms ", "meng", "m.eng"],
+    2: ["bachelor", "b.tech", "b.e.", "b.sc", "btech", "bs ", "b.s.", "ba "],
+    1: ["diploma", "associate", "certificate"],
+}
+
+CS_FIELD_KEYWORDS = {
+    "computer science", "computer engineering", "software engineering",
+    "information technology", "mathematics", "statistics", "physics",
+    "electrical engineering", "electronics",
+}
+
+AI_FIELD_KEYWORDS = {
+    "artificial intelligence", "machine learning", "data science",
+    "deep learning", "natural language processing", "computational linguistics",
+}
+
+ML_CERT_KEYWORDS = {
+    "aws", "amazon", "gcp", "google cloud", "azure", "microsoft certified",
+    "tensorflow", "pytorch", "keras", "deep learning", "machine learning",
+    "kubernetes", "docker", "mlops", "data engineer", "data science",
+    "nvidia", "databricks", "snowflake", "apache spark",
+}
+
+COMPANY_SIZE_ORD = {
+    "1-10": 0, "11-50": 1, "51-200": 2, "201-500": 3,
+    "501-1000": 4, "1001-5000": 5, "5001-10000": 6, "10001+": 7,
+}
+
+WORK_MODE_SCORE = {
+    "hybrid": 1.0, "flexible": 1.0,
+    "onsite": 0.7, "remote": 0.3,
+}
+
 REFERENCE_DATE = datetime(2026, 6, 27)
 
 
@@ -212,6 +247,27 @@ class CandidateFeatures:
     technical_yoe: float
     timeline_impossible: bool
     expert_zero_usage_count: int
+    has_cs_degree: bool
+    highest_degree_level: int
+    education_ai_relevance: float
+    education_recency: int
+    cert_count: int
+    ml_cert_count: int
+    cert_recency: int
+    ai_title_count: int
+    title_progression: int
+    avg_tenure_months: float
+    num_roles: int
+    max_company_size_ord: int
+    current_company_size_ord: int
+    total_skill_count: int
+    avg_skill_proficiency: float
+    endorsed_skill_ratio: float
+    skill_keyword_density: float
+    work_mode_match: float
+    search_appearance_30d: int
+    salary_range_width: float
+    platform_tenure_days: int
     profile_text: str = ""
 
 
@@ -293,6 +349,36 @@ def extract_features(candidate):
     has_product_ai_career = product_ai_months > 12
     technical_yoe = product_months / 12.0
 
+    ai_title_count = 0
+    max_company_size_ord = 0
+    role_tiers = []
+    durations = []
+    for role in career:
+        role_title = role.get("title") or ""
+        if _compute_title_tier(role_title) == 4:
+            ai_title_count += 1
+        role_size = COMPANY_SIZE_ORD.get(role.get("company_size") or "", 0)
+        if role_size > max_company_size_ord:
+            max_company_size_ord = role_size
+        role_tiers.append((_compute_title_tier(role_title), role.get("start_date") or ""))
+        durations.append(int(role.get("duration_months") or 0))
+
+    num_roles = len(career)
+    avg_tenure_months = sum(durations) / max(1, num_roles)
+
+    if len(role_tiers) >= 2:
+        sorted_tiers = sorted(role_tiers, key=lambda x: x[1])
+        first_tier = sorted_tiers[0][0]
+        last_tier = sorted_tiers[-1][0]
+        diff = last_tier - first_tier
+        title_progression = 1 if diff > 0 else (-1 if diff < 0 else 0)
+    else:
+        title_progression = 0
+
+    current_company_size_ord = COMPANY_SIZE_ORD.get(
+        profile.get("current_company_size") or "", 0
+    )
+
     total_score = 0.0
     top_matched_skill = None
     top_weight = 0.0
@@ -326,6 +412,20 @@ def extract_features(candidate):
     max_possible = len(JD_CORE_SKILLS) * 0.25
     skills_match_score = min(1.0, total_score / max(1.0, max_possible))
 
+    total_skill_count = len(skills)
+    if total_skill_count > 0:
+        prof_sum = sum(
+            PROFICIENCY_WEIGHTS.get(s.get("proficiency") or "beginner", 0.25)
+            for s in skills
+        )
+        avg_skill_proficiency = prof_sum / total_skill_count
+        endorsed_count = sum(1 for s in skills if int(s.get("endorsements") or 0) > 0)
+        endorsed_skill_ratio = endorsed_count / total_skill_count
+    else:
+        avg_skill_proficiency = 0.25
+        endorsed_skill_ratio = 0.0
+    skill_keyword_density = jd_skill_count / max(1, total_skill_count)
+
     jd_assessment_scores = []
     for skill_name, score in skill_assessments.items():
         sn = skill_name.lower()
@@ -355,6 +455,43 @@ def extract_features(candidate):
     tier_map = {"tier_1": 1, "tier_2": 2, "tier_3": 3, "tier_4": 4, "unknown": 4}
     tiers = [tier_map.get(e.get("tier") or "unknown", 4) for e in education]
     best_education_tier = min(tiers) if tiers else 4
+
+    has_cs_degree = False
+    highest_degree_level = 0
+    education_ai_relevance = 0.0
+    latest_end_year = 0
+    for edu in education:
+        field = (edu.get("field_of_study") or "").lower()
+        degree = (edu.get("degree") or "").lower()
+        end_year = int(edu.get("end_year") or 0)
+        if any(kw in field for kw in CS_FIELD_KEYWORDS):
+            has_cs_degree = True
+        if any(kw in field for kw in AI_FIELD_KEYWORDS):
+            education_ai_relevance = max(education_ai_relevance, 1.0)
+        elif any(kw in field for kw in CS_FIELD_KEYWORDS):
+            education_ai_relevance = max(education_ai_relevance, 0.5)
+        for level, keywords in DEGREE_LEVEL_KEYWORDS.items():
+            if any(kw in degree for kw in keywords):
+                highest_degree_level = max(highest_degree_level, level)
+                break
+        if end_year > latest_end_year:
+            latest_end_year = end_year
+    education_recency = (2026 - latest_end_year) if latest_end_year > 0 else 20
+
+    certs = candidate.get("certifications") or []
+    cert_count = len(certs)
+    ml_cert_count = 0
+    latest_cert_year = 0
+    for cert in certs:
+        cert_name = (cert.get("name") or "").lower()
+        cert_issuer = (cert.get("issuer") or "").lower()
+        cert_text = cert_name + " " + cert_issuer
+        if any(kw in cert_text for kw in ML_CERT_KEYWORDS):
+            ml_cert_count += 1
+        cert_year = int(cert.get("year") or 0)
+        if cert_year > latest_cert_year:
+            latest_cert_year = cert_year
+    cert_recency = (2026 - latest_cert_year) if latest_cert_year > 0 else 10
 
     location = (profile.get("location") or "").lower()
     country = (profile.get("country") or "").lower()
@@ -391,6 +528,16 @@ def extract_features(candidate):
         if signals.get("offer_acceptance_rate") is not None
         else -1
     )
+    work_mode = (signals.get("preferred_work_mode") or "").lower()
+    work_mode_match = WORK_MODE_SCORE.get(work_mode, 0.5)
+    search_appearance_30d = int(signals.get("search_appearance_30d") or 0)
+    salary_range_width = salary_max - salary_min
+    signup_date_str = signals.get("signup_date") or ""
+    try:
+        signup_dt = datetime.strptime(signup_date_str, "%Y-%m-%d")
+        platform_tenure_days = max(0, (REFERENCE_DATE - signup_dt).days)
+    except (ValueError, TypeError):
+        platform_tenure_days = 365
     endorsements_total_val = int(signals.get("endorsements_received") or 0)
     connection_count_val = int(signals.get("connection_count") or 0)
     verified_ct = (
@@ -468,5 +615,26 @@ def extract_features(candidate):
         technical_yoe=technical_yoe,
         timeline_impossible=timeline_impossible,
         expert_zero_usage_count=expert_zero_count,
+        has_cs_degree=has_cs_degree,
+        highest_degree_level=highest_degree_level,
+        education_ai_relevance=education_ai_relevance,
+        education_recency=education_recency,
+        cert_count=cert_count,
+        ml_cert_count=ml_cert_count,
+        cert_recency=cert_recency,
+        ai_title_count=ai_title_count,
+        title_progression=title_progression,
+        avg_tenure_months=avg_tenure_months,
+        num_roles=num_roles,
+        max_company_size_ord=max_company_size_ord,
+        current_company_size_ord=current_company_size_ord,
+        total_skill_count=total_skill_count,
+        avg_skill_proficiency=avg_skill_proficiency,
+        endorsed_skill_ratio=endorsed_skill_ratio,
+        skill_keyword_density=skill_keyword_density,
+        work_mode_match=work_mode_match,
+        search_appearance_30d=search_appearance_30d,
+        salary_range_width=salary_range_width,
+        platform_tenure_days=platform_tenure_days,
         profile_text=profile_text,
     )
