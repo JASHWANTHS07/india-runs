@@ -62,6 +62,13 @@ LTR_FEATURE_COLS = [
     "total_skill_count", "avg_skill_proficiency", "endorsed_skill_ratio", "skill_keyword_density",
     # Work mode & platform features
     "work_mode_match", "search_appearance_30d", "salary_range_width", "platform_tenure_days",
+    # New v2 features
+    "headline_has_ai_keywords", "headline_has_generic_filler",
+    "salary_inverted", "salary_fits_role",
+    "assessment_count", "assessment_jd_count", "assessment_proficiency_gap",
+    "market_demand_score",
+    "summary_is_template", "summary_ai_keyword_count",
+    "career_desc_title_mismatch_count", "career_production_keyword_density",
     # Reasoning-derived features (string fields excluded, bool proxy used)
     "has_notable_company",
     # Retrieval scores (added during precompute)
@@ -116,9 +123,15 @@ def create_pseudo_labels(df: pd.DataFrame) -> np.ndarray:
         shipped = int(row.get("shipped_count", 0))
         cross_enc = float(row.get("cross_encoder_score", 0))
         country = str(row.get("country", "")).lower()
+        sal_inv = bool(row.get("salary_inverted", False))
+        is_template = bool(row.get("summary_is_template", False))
+        desc_mismatch = int(row.get("career_desc_title_mismatch_count", 0))
 
-        # Grade 0: clear irrelevance
-        if timeline_imp or expert_zero > 3:
+        # Grade 0: clear irrelevance + new honeypot signals
+        if timeline_imp or expert_zero > 3 or sal_inv:
+            labels[i] = 0
+            continue
+        if is_template and desc_mismatch >= 2:
             labels[i] = 0
             continue
         if is_consult and tier < 4:
@@ -131,28 +144,29 @@ def create_pseudo_labels(df: pd.DataFrame) -> np.ndarray:
             labels[i] = 0
             continue
 
-        # Grade 4: perfect domain fit — deep retrieval + product + shipped
-        if (tier == 4 and retrieval_mo >= 24 and has_product
-                and shipped >= 1 and "india" in country):
+        # Grade 4: perfect domain fit
+        if (tier >= 3 and retrieval_mo >= 18 and has_product
+                and shipped >= 1 and "india" in country
+                and cross_enc >= 0.3):
             labels[i] = 4
             continue
 
-        # Grade 3: strong domain fit — significant retrieval + AI depth
-        if tier >= 3 and ai_mo >= 24 and has_product and retrieval_mo >= 12:
+        # Grade 3: strong domain fit
+        if tier >= 3 and ai_mo >= 18 and has_product and retrieval_mo >= 6:
             labels[i] = 3
-            if cross_enc >= 0.5 and retrieval_mo >= 24:
+            if cross_enc >= 0.5 and retrieval_mo >= 18:
                 labels[i] = 4
             continue
 
-        # Grade 2: moderate — relevant title + some domain experience
-        if tier >= 3 and ai_mo >= 12 and retrieval_mo >= 6:
+        # Grade 2: moderate
+        if tier >= 3 and ai_mo >= 12 and retrieval_mo >= 3:
             labels[i] = 2
             continue
         if tier == 4 and ai_mo < 12 and coherence >= 0.3:
             labels[i] = 2
             continue
 
-        # Grade 1: weak — adjacent title or light domain signals
+        # Grade 1: weak
         if tier >= 2 and ai_mo >= 6:
             labels[i] = 1
             continue
@@ -583,14 +597,14 @@ def main(artifacts_dir: str, out_path: str, method: str = "heuristic",
             dtest = xgb.DMatrix(X_all_np)
             ltr_scores = ltr_model.predict(dtest)
 
-            # Rank-based percentile normalization (on qualified only)
+            # Sigmoid normalization (preserves score gaps at the top)
             qualified_indices = np.where(qualified_mask.values)[0]
             final_scores = np.zeros(N, dtype=np.float32)
             q_scores = ltr_scores[qualified_indices]
-            order = q_scores.argsort()
-            q_ranks = np.empty_like(order, dtype=np.float32)
-            q_ranks[order] = np.arange(1, len(order) + 1, dtype=np.float32)
-            q_final = q_ranks / (len(q_ranks) + 1)
+            median_q = np.median(q_scores)
+            iqr = np.percentile(q_scores, 75) - np.percentile(q_scores, 25)
+            scale = max(iqr * 0.5, 0.01)
+            q_final = 1.0 / (1.0 + np.exp(-(q_scores - median_q) / scale))
             final_scores[qualified_indices] = q_final
 
             # Zero out honeypots within qualified pool
