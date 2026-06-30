@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 from src.loader import load_candidates, load_sample
 
-DATA_DIR = Path(r"H:\india_runs\Data\[PUB] India_runs_data_and_ai_challenge\India_runs_data_and_ai_challenge")
+DATA_DIR = Path(__file__).parent.parent / "dataset" / "India_runs_data_and_ai_challenge"
 SAMPLE_PATH = DATA_DIR / "sample_candidates.json"
 JSONL_PATH = DATA_DIR / "candidates.jsonl"
 
