@@ -2,7 +2,7 @@
 Scoring engine for Redrob candidate ranking.
 
 Architecture:
-  final_score = relevance_gate * quality_score * availability_modifier
+  score = relevance_gate × technical_core × fit_multiplier × behavioral × availability
 """
 
 import math
@@ -39,11 +39,11 @@ def career_depth_score(f):
 
 def experience_fit_score(technical_yoe):
     if 5.0 <= technical_yoe <= 9.0:
-        return math.exp(-0.5 * ((technical_yoe - 7.0) / 1.5) ** 2)
+        return math.exp(-0.5 * ((technical_yoe - 7.0) / 2.0) ** 2)
     elif technical_yoe < 5.0:
-        return max(0.05, (technical_yoe / 5.0) * 0.3)
+        return max(0.05, math.exp(-2.0 * (5.0 - technical_yoe) ** 2))
     else:
-        return max(0.15, 1.0 - (technical_yoe - 9.0) / 8.0)
+        return max(0.15, 1.0 - (technical_yoe - 9.0) / 10.0)
 
 
 def skills_quality_score(f):
@@ -104,22 +104,49 @@ def availability_modifier(f):
 def compute_score(f, semantic_sim):
     if is_honeypot(f):
         return 0.0
+
+    # STAGE 1: Relevance gate
     title_score = title_relevance_score(f)
     career_score = career_depth_score(f)
     coherence = f.skill_career_coherence
     relevance = 0.35 * title_score + 0.45 * career_score + 0.20 * coherence
     if relevance < 0.08:
         return relevance * 0.01
-    sem_fit = max(0.0, semantic_sim)
-    skills_fit = skills_quality_score(f)
+
+    # STAGE 2: Technical core (PRIMARY DISCRIMINATOR)
+    retrieval_depth = min(1.0, f.career_retrieval_months / 60.0)
+    production_depth = min(1.0, f.ai_ml_months / 72.0)
+    vector_db = 1.0 if f.vector_search_experience else 0.0
+    shipped = min(1.0, f.shipped_count / 3.0)
+    sem = max(0.0, semantic_sim)
+
+    technical_core = (
+        0.35 * retrieval_depth
+        + 0.25 * production_depth
+        + 0.15 * vector_db
+        + 0.10 * shipped
+        + 0.15 * sem
+    )
+
+    # STAGE 3: Fit multiplier (floor at 0.3)
     exp_fit = experience_fit_score(f.technical_yoe)
-    retrieval_fit = min(1.0, f.career_retrieval_months / 30)
-    technical = 0.25 * sem_fit + 0.30 * skills_fit + 0.15 * exp_fit + 0.30 * retrieval_fit
+    skills_fit = skills_quality_score(f)
+    fit_multiplier = max(0.3, 0.50 * exp_fit + 0.50 * skills_fit)
+
+    # STAGE 4: Behavioral modifier (narrow range 0.7-1.2)
     behav = behavioral_score(f)
+    behav = max(0.7, min(1.2, behav))
+
+    # STAGE 5: Availability
     avail = availability_modifier(f)
-    base = (0.40 * relevance + 0.40 * technical + 0.20 * behav) * avail
+
+    # COMPOSE: multiplicative hierarchy
+    base = relevance * technical_core * fit_multiplier * behav * avail
+
+    # Hard penalties (softened YOE cliff)
     if f.technical_yoe < 5.0:
-        base *= 0.05
+        penalty = max(0.05, math.exp(-2.0 * (5.0 - f.technical_yoe) ** 2))
+        base *= penalty
     if f.is_consulting_only and f.technical_yoe > 3.0:
         base *= 0.10
     if f.non_tech_title_with_ai_skills and f.ai_ml_months < 12:
@@ -128,4 +155,5 @@ def compute_score(f, semantic_sim):
         base *= 0.20
     if f.is_cv_only_title and f.career_retrieval_months < 6:
         base *= 0.40
+
     return max(0.0, min(1.0, base))
