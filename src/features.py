@@ -198,6 +198,34 @@ NOTABLE_COMPANIES = {
     "linkedin", "apple", "flipkart", "salesforce",
 }
 
+AI_HEADLINE_KEYWORDS = {
+    "ml", "ai", "nlp", "search", "ranking", "retrieval", "machine learning",
+    "deep learning", "recommendation", "data scientist", "data science",
+    "applied scientist", "research scientist",
+}
+
+GENERIC_HEADLINE_PHRASES = {
+    "driving business outcomes", "helping teams scale",
+    "yrs experience", "years experience",
+}
+
+SUMMARY_TEMPLATE_PHRASES = [
+    "i've spent my career in marketing manager",
+    "my professional background is in marketing manager",
+    "i'm a marketing manager with substantial",
+    "open to roles where i can apply my domain expertise alongside emerging ai",
+]
+
+NONTECH_TITLE_KEYWORDS = {
+    "marketing", "hr", "accountant", "sales", "operations", "support",
+    "civil", "mechanical", "graphic", "content", "project manager",
+}
+
+TECH_DESC_KEYWORDS = {
+    "python", "ml", "deployed", "kubernetes", "api", "microservice",
+    "pipeline", "model", "neural", "embedding", "tensorflow", "pytorch",
+}
+
 REFERENCE_DATE = datetime(2026, 6, 27)
 
 
@@ -273,6 +301,18 @@ class CandidateFeatures:
     search_appearance_30d: int
     salary_range_width: float
     platform_tenure_days: int
+    headline_has_ai_keywords: bool
+    headline_has_generic_filler: bool
+    salary_inverted: bool
+    salary_fits_role: float
+    assessment_count: int
+    assessment_jd_count: int
+    assessment_proficiency_gap: float
+    market_demand_score: float
+    summary_is_template: bool
+    summary_ai_keyword_count: int
+    career_desc_title_mismatch_count: int
+    career_production_keyword_density: float
     notable_company: str = ""
     best_institution: str = ""
     best_field: str = ""
@@ -594,6 +634,53 @@ def extract_features(candidate):
         text_parts.append(role.get("description") or "")
     profile_text = " ".join(p for p in text_parts if p).strip()[:2000]
 
+    # --- NEW FEATURE EXTRACTION ---
+    headline = (profile.get("headline") or "").lower()
+    headline_has_ai_kw = any(k in headline for k in AI_HEADLINE_KEYWORDS)
+    headline_has_generic = any(k in headline for k in GENERIC_HEADLINE_PHRASES)
+
+    sal_inverted = salary_min > salary_max
+    cand_sal_lo = min(salary_min, salary_max)
+    cand_sal_hi = max(salary_min, salary_max)
+    role_lo, role_hi = 25.0, 60.0
+    overlap = max(0.0, min(role_hi, cand_sal_hi) - max(role_lo, cand_sal_lo))
+    sal_fits_role = overlap / (role_hi - role_lo) if cand_sal_hi > 0 else 0.0
+
+    assess_scores = signals.get("skill_assessment_scores") or {}
+    assess_count = len(assess_scores)
+    assess_jd_ct = sum(1 for sk in assess_scores if _skill_matches_jd(sk.lower())[0])
+    prof_to_num = {"expert": 4.0, "advanced": 3.0, "intermediate": 2.0, "beginner": 1.0}
+    gaps = []
+    for skill in skills:
+        sname = skill.get("name") or ""
+        if sname in assess_scores:
+            claimed = prof_to_num.get(skill.get("proficiency") or "beginner", 1.0)
+            actual = assess_scores[sname] / 25.0
+            gaps.append(claimed - actual)
+    assess_prof_gap = sum(gaps) / len(gaps) if gaps else 0.0
+
+    mkt_demand = min(1.0, (
+        profile_views_30d / 200.0
+        + search_appearance_30d / 500.0
+        + saved_by_recruiters / 15.0
+    ) / 3.0)
+
+    summary_text = (profile.get("summary") or "").lower()
+    is_template_summary = any(p in summary_text for p in SUMMARY_TEMPLATE_PHRASES)
+    summary_ai_kw_count = _count_keyword_hits(summary_text, AI_ML_KEYWORDS)
+
+    desc_title_mismatch_ct = 0
+    prod_kw_counts = []
+    for role in career:
+        rtitle = (role.get("title") or "").lower()
+        rdesc = (role.get("description") or "").lower()
+        is_nt = any(k in rtitle for k in NONTECH_TITLE_KEYWORDS)
+        has_tech = sum(1 for k in TECH_DESC_KEYWORDS if k in rdesc) >= 2
+        if is_nt and has_tech:
+            desc_title_mismatch_ct += 1
+        prod_kw_counts.append(_count_keyword_hits(rdesc, PRODUCTION_KEYWORDS))
+    career_prod_kw_density = sum(prod_kw_counts) / max(1, len(prod_kw_counts))
+
     return CandidateFeatures(
         candidate_id=candidate["candidate_id"],
         yoe=stated_yoe,
@@ -665,6 +752,18 @@ def extract_features(candidate):
         search_appearance_30d=search_appearance_30d,
         salary_range_width=salary_range_width,
         platform_tenure_days=platform_tenure_days,
+        headline_has_ai_keywords=headline_has_ai_kw,
+        headline_has_generic_filler=headline_has_generic,
+        salary_inverted=sal_inverted,
+        salary_fits_role=sal_fits_role,
+        assessment_count=assess_count,
+        assessment_jd_count=assess_jd_ct,
+        assessment_proficiency_gap=assess_prof_gap,
+        market_demand_score=mkt_demand,
+        summary_is_template=is_template_summary,
+        summary_ai_keyword_count=summary_ai_kw_count,
+        career_desc_title_mismatch_count=desc_title_mismatch_ct,
+        career_production_keyword_density=career_prod_kw_density,
         notable_company=notable_company_name,
         best_institution=best_institution_name,
         best_field=best_field_name,
