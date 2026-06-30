@@ -301,18 +301,18 @@ class CandidateFeatures:
     search_appearance_30d: int
     salary_range_width: float
     platform_tenure_days: int
-    headline_has_ai_keywords: bool
-    headline_has_generic_filler: bool
-    salary_inverted: bool
-    salary_fits_role: float
-    assessment_count: int
-    assessment_jd_count: int
-    assessment_proficiency_gap: float
-    market_demand_score: float
-    summary_is_template: bool
-    summary_ai_keyword_count: int
-    career_desc_title_mismatch_count: int
-    career_production_keyword_density: float
+    headline_has_ai_keywords: bool = False
+    headline_has_generic_filler: bool = False
+    salary_inverted: bool = False
+    salary_fits_role: float = 0.0
+    assessment_count: int = 0
+    assessment_jd_count: int = 0
+    assessment_proficiency_gap: float = 0.0
+    market_demand_score: float = 0.0
+    summary_is_template: bool = False
+    summary_ai_keyword_count: int = 0
+    career_desc_title_mismatch_count: int = 0
+    career_production_keyword_density: float = 0.0
     notable_company: str = ""
     best_institution: str = ""
     best_field: str = ""
