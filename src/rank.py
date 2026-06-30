@@ -62,6 +62,8 @@ LTR_FEATURE_COLS = [
     "total_skill_count", "avg_skill_proficiency", "endorsed_skill_ratio", "skill_keyword_density",
     # Work mode & platform features
     "work_mode_match", "search_appearance_30d", "salary_range_width", "platform_tenure_days",
+    # Reasoning-derived features (string fields excluded, bool proxy used)
+    "has_notable_company",
     # Retrieval scores (added during precompute)
     "semantic_sim", "bm25_score", "cross_encoder_score",
     # Derived from heuristic scoring
@@ -494,6 +496,12 @@ def main(artifacts_dir: str, out_path: str, method: str = "heuristic",
     if "cross_encoder_score" not in features_df.columns:
         print("  [WARN] cross_encoder_score not in artifacts, using 0")
         features_df["cross_encoder_score"] = 0.0
+
+    # Derive boolean features from string fields
+    if "notable_company" in features_df.columns:
+        features_df["has_notable_company"] = (features_df["notable_company"].fillna("").str.len() > 0).astype(int)
+    else:
+        features_df["has_notable_company"] = 0
 
     # Reclassify title tiers using current code (skip re-precompute)
     if reclassify_titles:

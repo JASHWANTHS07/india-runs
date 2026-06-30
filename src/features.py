@@ -193,6 +193,11 @@ WORK_MODE_SCORE = {
     "onsite": 0.7, "remote": 0.3,
 }
 
+NOTABLE_COMPANIES = {
+    "google", "microsoft", "amazon", "meta", "netflix", "uber",
+    "linkedin", "apple", "flipkart", "salesforce",
+}
+
 REFERENCE_DATE = datetime(2026, 6, 27)
 
 
@@ -268,6 +273,9 @@ class CandidateFeatures:
     search_appearance_30d: int
     salary_range_width: float
     platform_tenure_days: int
+    notable_company: str = ""
+    best_institution: str = ""
+    best_field: str = ""
     profile_text: str = ""
 
 
@@ -379,6 +387,16 @@ def extract_features(candidate):
         profile.get("current_company_size") or "", 0
     )
 
+    notable_company_name = ""
+    for role in reversed(career):
+        co = (role.get("company") or "").lower()
+        for nc in NOTABLE_COMPANIES:
+            if nc in co:
+                notable_company_name = role.get("company") or ""
+                break
+        if notable_company_name:
+            break
+
     total_score = 0.0
     top_matched_skill = None
     top_weight = 0.0
@@ -476,7 +494,18 @@ def extract_features(candidate):
                 break
         if end_year > latest_end_year:
             latest_end_year = end_year
-    education_recency = (2026 - latest_end_year) if latest_end_year > 0 else 20
+    education_recency = (REFERENCE_DATE.year - latest_end_year) if latest_end_year > 0 else 20
+
+    best_edu_tier_val = 5
+    best_institution_name = ""
+    best_field_name = ""
+    for edu in education:
+        tier_str = edu.get("tier") or "unknown"
+        tier_val = tier_map.get(tier_str, 4)
+        if tier_val < best_edu_tier_val:
+            best_edu_tier_val = tier_val
+            best_institution_name = edu.get("institution") or ""
+            best_field_name = edu.get("field_of_study") or ""
 
     certs = candidate.get("certifications") or []
     cert_count = len(certs)
@@ -491,7 +520,7 @@ def extract_features(candidate):
         cert_year = int(cert.get("year") or 0)
         if cert_year > latest_cert_year:
             latest_cert_year = cert_year
-    cert_recency = (2026 - latest_cert_year) if latest_cert_year > 0 else 10
+    cert_recency = (REFERENCE_DATE.year - latest_cert_year) if latest_cert_year > 0 else 10
 
     location = (profile.get("location") or "").lower()
     country = (profile.get("country") or "").lower()
@@ -636,5 +665,8 @@ def extract_features(candidate):
         search_appearance_30d=search_appearance_30d,
         salary_range_width=salary_range_width,
         platform_tenure_days=platform_tenure_days,
+        notable_company=notable_company_name,
+        best_institution=best_institution_name,
+        best_field=best_field_name,
         profile_text=profile_text,
     )

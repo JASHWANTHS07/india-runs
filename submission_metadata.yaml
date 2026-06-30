@@ -60,18 +60,20 @@ ai_usage_summary: |
 # Approach summary
 # ============================================================================
 methodology_summary: |
-  Hybrid retrieval + learning-to-rank pipeline. GPU precompute phase embeds
-  100K candidates with BAAI/bge-large-en-v1.5 (bi-encoder), computes BM25
-  sparse scores, and re-ranks top-1000 with cross-encoder/ms-marco-MiniLM-L-6-v2.
-  45+ structured features are extracted per candidate: title relevance tiers,
-  career depth in AI/retrieval, skill-career coherence (detecting keyword
-  stuffers), behavioral signals, and honeypot indicators. CPU ranking phase
-  trains XGBoost (rank:pairwise) on pseudo-relevance labels derived from
-  high-confidence composite signals, using all features + retrieval scores
-  as input. This learns feature interactions that hand-tuned weights miss.
-  Honeypots are zero-scored post-LTR. Reasoning is template-generated from
-  extracted features — zero hallucination risk, every claim traceable to data.
-  Runtime: ~20 min GPU precompute, <3 min CPU ranking.
+  Two-level hybrid retrieval + learning-to-rank pipeline. GPU precompute phase
+  embeds 100K candidates with BAAI/bge-large-en-v1.5, computes BM25 sparse
+  scores, and re-ranks top-1000 with cross-encoder/ms-marco-MiniLM-L-6-v2.
+  66 structured features extracted per candidate across 8 categories: title
+  relevance, career depth in AI/retrieval, education quality, ML certifications,
+  career trajectory/stability, skill-career coherence (detecting keyword
+  stuffers), behavioral signals, and honeypot indicators. Level 1 hard-filters
+  on technical_yoe >= 5 (excluding consulting firm time). Level 2 trains
+  XGBoost LTR (rank:pairwise) with Optuna-tuned hyperparameters on the
+  qualified pool using domain-focused pseudo-relevance labels. Reasoning is
+  feature-grounded with diverse leads (notable employers, education, retrieval
+  depth) and explicit JD-connection phrases — zero hallucination risk.
+  Honeypots zero-scored post-LTR. Runtime: ~20 min GPU precompute, <3 min
+  CPU ranking.
 
 # ============================================================================
 # Declarations
