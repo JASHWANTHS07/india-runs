@@ -8,10 +8,7 @@ Concerns appear from rank 3+ (not just tail).
 Rank-tier tone: top-10 confident, mid-pack balanced, tail explicitly cautious.
 """
 
-NOTABLE_COMPANIES = {
-    "google", "microsoft", "amazon", "meta", "netflix", "uber",
-    "linkedin", "apple", "flipkart", "salesforce",
-}
+from src.features import NOTABLE_COMPANIES
 
 
 def generate_reasoning(f, rank, semantic_sim=0.0):
@@ -83,6 +80,12 @@ def _build_lead(f, rank):
     else:
         prefix = ""
 
+    # Priority 0: Deep retrieval specialist (retrieval is JD's #1 requirement)
+    if f.career_retrieval_months >= 24 and f.has_product_ai_career and f.shipped_count >= 1:
+        yrs = str(f.career_retrieval_months // 12)
+        lead = prefix + yrs + "-year retrieval/ranking specialist, currently " + title + " at " + company + annot + suffix + "."
+        return lead, "retrieval_deep"
+
     # Priority 1: Notable past company
     if has_notable and f.ai_ml_months >= 12:
         yrs = str(max(1, f.ai_ml_months // 12))
@@ -150,13 +153,15 @@ _CS_FIELDS = {
 
 
 def _get_jd_phrase(f):
-    """Pick the single best JD-connection phrase (semicolon-joinable fragment)."""
+    """Pick the single best JD-connection phrase."""
     if f.has_product_ai_career and f.shipped_count >= 1 and not f.is_consulting_only:
         return "matches the JD's 'product over research' profile"
     if f.career_retrieval_months >= 24:
-        return "directly fits the JD's hybrid retrieval mandate"
+        return "directly fits the JD's production retrieval mandate"
     if f.ai_ml_months >= 48 and f.shipped_count >= 1:
         return "shows the pre-LLM production ML depth the JD values"
+    if f.vector_search_experience and f.career_retrieval_months >= 6:
+        return "vector DB proficiency aligns with the JD's hybrid search requirement"
     if f.has_product_company and not f.is_consulting_only:
         return "aligns with the JD's product-company preference"
     avg_tenure = getattr(f, 'avg_tenure_months', 0.0)
@@ -164,6 +169,12 @@ def _get_jd_phrase(f):
         return "tenure fits the JD's 3+ year commitment preference"
     if f.github_activity_score >= 60:
         return "open-source presence provides JD-required external validation"
+    assess_ct = getattr(f, 'assessment_jd_count', 0)
+    if assess_ct >= 2:
+        return "platform assessment scores provide external skill validation"
+    sal_fit = getattr(f, 'salary_fits_role', 0)
+    if sal_fit >= 0.5:
+        return "salary expectations align with senior IC compensation at this stage"
     if f.jd_skill_count >= 2:
         return "skill set overlaps with multiple JD requirements"
     return ""
