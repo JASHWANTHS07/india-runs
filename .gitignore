@@ -8,11 +8,14 @@ build/
 *.npy
 *.parquet
 .env
+CLAUDE.md
 
 # Data directory (large files, not for version control)
 Data/India_runs_data_and_ai_challenge
-Docs/
+docs/
 artifacts_01/
+India_runs_data_and_ai_challenge/
+submissions/
 
 # macOS junk
 .DS_Store
