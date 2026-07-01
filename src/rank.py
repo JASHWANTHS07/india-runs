@@ -491,7 +491,7 @@ def train_ltr_model(X: np.ndarray, y: np.ndarray, params: dict = None,
 
 def main(artifacts_dir: str, out_path: str, method: str = "heuristic",
          tune: bool = False, tune_trials: int = 50,
-         reclassify_titles: bool = False) -> None:
+         reclassify_titles: bool = False, top_k: int = 100) -> None:
     t0 = time.time()
     artifacts = Path(artifacts_dir)
     out = Path(out_path)
@@ -665,13 +665,13 @@ def main(artifacts_dir: str, out_path: str, method: str = "heuristic",
     # Sort descending by score, then ascending by candidate_id for tie-break
     results.sort(key=lambda x: (-x[0], x[1]))
 
-    top_k = min(100, len(results))
-    if top_k == 0:
+    actual_k = min(top_k, len(results))
+    if actual_k == 0:
         raise RuntimeError("No candidates to rank")
-    if top_k < 100:
-        print(f"  [WARN] Only {len(results)} candidates, outputting top {top_k} (need 100 for submission)")
+    if actual_k < top_k:
+        print(f"  [WARN] Only {len(results)} candidates, outputting top {actual_k}")
 
-    top100 = results[:top_k]
+    top100 = results[:actual_k]
 
     # Build submission — enforce non-increasing scores for CSV
     output_rows = []
@@ -709,7 +709,10 @@ if __name__ == "__main__":
                         help="Number of Optuna trials (default: 50)")
     parser.add_argument("--reclassify-titles", action="store_true",
                         help="Recompute title tiers at rank time (skip re-precompute)")
+    parser.add_argument("--top-k", type=int, default=100,
+                        help="Number of top candidates to output (default: 100)")
     args = parser.parse_args()
     main(args.artifacts, args.out, method=args.method,
          tune=args.tune, tune_trials=args.tune_trials,
-         reclassify_titles=args.reclassify_titles)
+         reclassify_titles=args.reclassify_titles,
+         top_k=args.top_k)
