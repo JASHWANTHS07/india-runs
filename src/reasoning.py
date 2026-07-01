@@ -1,161 +1,43 @@
 """
 Generate natural-language reasoning for each ranked candidate.
 
-Lead sentence picks the candidate's most distinctive signal.
-JD-connection phrase links at least one signal to a specific JD requirement.
-Support section draws from an expanded signal pool.
-Concerns appear from rank 3+ (not just tail).
-Rank-tier tone: top-10 confident, mid-pack balanced, tail explicitly cautious.
+Three-part narrative structure per candidate:
+  1. Identity — who they are + most distinctive signal
+  2. Technical evidence — specific skills, depth, JD alignment
+  3. Context — supporting signals and/or honest concerns
+
+Each part uses multiple template variants rotated by candidate_id hash
+to ensure no two candidates produce structurally identical reasoning.
 """
 
 from src.features import NOTABLE_COMPANIES
 
 
 def generate_reasoning(f, rank, semantic_sim=0.0):
-    parts = []
-    lead, lead_type = _build_lead(f, rank)
-    parts.append(lead)
-    second = _build_second_sentence(f, rank, lead_type)
-    if second:
-        parts.append(second)
+    h1 = _hash(f.candidate_id, 0)
+    h2 = _hash(f.candidate_id, 17)
+    h3 = _hash(f.candidate_id, 31)
+
+    parts = [_build_identity(f, rank, h1)]
+
+    tech = _build_technical(f, h2)
+    if tech:
+        parts.append(tech)
+
+    ctx = _build_context(f, rank, h3)
+    if ctx:
+        parts.append(ctx)
+
     return " ".join(parts)
 
 
-def _get_domain_string(f):
-    if f.career_retrieval_months >= 12:
-        return "ranking and retrieval systems"
-    if f.ai_ml_months >= 36 and f.has_product_ai_career:
-        return "applied AI/ML at product companies"
-    if f.ai_ml_months >= 36:
-        return "applied AI/ML"
-    if f.shipped_count >= 2:
-        return "production ML systems"
-    return "software engineering"
+def _hash(cid, salt=0):
+    return sum((ord(c) + salt) * (i + 1) for i, c in enumerate(cid))
 
 
-def _yoe_annotation(f):
-    if not hasattr(f, 'technical_yoe') or abs(f.technical_yoe - f.yoe) <= 1.0:
-        return ""
-    tech_str = str(round(f.technical_yoe, 1))
-    yoe_str = str(round(f.yoe, 1))
-    if f.technical_yoe > f.yoe:
-        return " (" + tech_str + " years verified from career history, " + yoe_str + " stated)"
-    return " (" + tech_str + " years non-consulting out of " + yoe_str + " total)"
-
-
-def _skill_suffix(f):
-    if f.top_matched_skill and f.jd_tier1_skill_count >= 2:
-        s = "; core competency in " + str(f.top_matched_skill)
-        if f.jd_tier1_skill_count >= 4:
-            s += " and " + str(f.jd_tier1_skill_count - 1) + " other JD-critical skills"
-        return s
-    if f.top_matched_skill:
-        return "; matched on " + str(f.top_matched_skill)
-    return ""
-
-
-def _build_lead(f, rank):
-    notable = getattr(f, 'notable_company', '') or ''
-    best_inst = getattr(f, 'best_institution', '') or ''
-    best_field = getattr(f, 'best_field', '') or ''
-    domain = _get_domain_string(f)
-    annot = _yoe_annotation(f)
-    suffix = _skill_suffix(f)
-    title = str(f.current_title)
-    company = str(f.current_company)
-
-    has_notable = bool(notable) and notable.lower() != company.lower()
-    has_tier1_edu = f.best_education_tier == 1 and bool(best_inst)
-    has_deep_retrieval = f.career_retrieval_months >= 48
-    has_multi_shipped = f.shipped_count >= 3
-    has_ml_certs = getattr(f, 'ml_cert_count', 0) >= 2
-    has_deep_ai = f.ai_ml_months >= 36
-    has_retrieval = f.career_retrieval_months >= 12
-
-    # Rank-tier prefix — based on candidate signals, not just rank position
-    # Strong candidates ranked low (due to tie-breaking) shouldn't get "borderline"
-    is_strong = (f.career_retrieval_months >= 12 and f.has_product_ai_career
-                 and f.title_relevance_tier >= 3)
-    if rank >= 90 and not is_strong:
-        prefix = "Borderline fit: "
-    elif rank >= 70 and not is_strong:
-        prefix = "Adequate but not strong: "
-    else:
-        prefix = ""
-
-    # Diverse lead selection — pick the MOST DISTINCTIVE signal per candidate
-    # to avoid all top-100 sharing the same "X-year retrieval specialist" template.
-    # Use candidate_id hash to break ties when multiple leads qualify.
-    cid_hash = sum(ord(c) for c in f.candidate_id) % 7
-    retrieval_yrs = str(f.career_retrieval_months // 12) if f.career_retrieval_months >= 12 else "0"
-    ai_yrs = str(max(1, f.ai_ml_months // 12)) if f.ai_ml_months >= 12 else str(round(f.yoe, 1))
-
-    # Notable past company — always wins when available (rare: ~3%)
-    if has_notable and f.ai_ml_months >= 12:
-        lead = prefix + "Former " + notable + " engineer, now " + title + " at " + company + " with " + ai_yrs + "+ years in " + domain + annot + suffix + "."
-        return lead, "notable"
-
-    # Tier-1 education — wins when available (relatively rare)
-    if has_tier1_edu and (best_field.lower() in _AI_FIELDS or best_field.lower() in _CS_FIELDS or f.education_ai_relevance >= 0.5):
-        lead = prefix + title + " at " + company + ", " + best_inst + " " + best_field + " graduate with " + ai_yrs + " years in " + domain + annot + suffix + "."
-        return lead, "education"
-
-    # For candidates with deep retrieval — rotate among diverse phrasings
-    if f.career_retrieval_months >= 24 and f.has_product_ai_career:
-        variant = cid_hash % 5
-        if variant == 0:
-            lead = prefix + retrieval_yrs + "-year retrieval/ranking specialist, currently " + title + " at " + company + annot + suffix + "."
-            return lead, "retrieval_deep"
-        elif variant == 1 and f.shipped_count >= 1:
-            lead = prefix + title + " at " + company + " with " + str(f.shipped_count) + " shipped search/ranking systems and " + retrieval_yrs + " years in retrieval" + annot + suffix + "."
-            return lead, "shipped_retrieval"
-        elif variant == 2 and f.vector_search_experience:
-            lead = prefix + title + " at " + company + " combining " + retrieval_yrs + " years of retrieval with hands-on vector DB experience" + annot + suffix + "."
-            return lead, "vector_retrieval"
-        elif variant == 3:
-            lead = prefix + title + " at " + company + " with " + ai_yrs + " years of applied AI/ML, including " + retrieval_yrs + " years focused on ranking and retrieval" + annot + suffix + "."
-            return lead, "ai_with_retrieval"
-        else:
-            lead = prefix + title + " at " + company + " with deep production experience in search, ranking, and recommendation systems" + annot + suffix + "."
-            return lead, "production_search"
-
-    # Deep retrieval without product AI
-    if f.career_retrieval_months >= 48:
-        lead = prefix + title + " at " + company + " with " + retrieval_yrs + "+ years building ranking and retrieval systems" + annot + suffix + "."
-        return lead, "retrieval"
-
-    # Multiple shipped systems (>=3)
-    if has_multi_shipped:
-        companies_str = "at product companies" if f.has_product_ai_career else "across multiple roles"
-        lead = prefix + title + " at " + company + " with " + str(f.shipped_count) + " production ML deployments " + companies_str + annot + suffix + "."
-        return lead, "shipped"
-
-    # ML certifications (>=2)
-    if has_ml_certs:
-        cert_count = getattr(f, 'ml_cert_count', 0)
-        lead = prefix + title + " at " + company + ", holds " + str(cert_count) + " ML/cloud certifications, with " + ai_yrs + " years in " + domain + annot + suffix + "."
-        return lead, "certs"
-
-    # Strong AI depth + product
-    if has_deep_ai and f.has_product_ai_career:
-        lead = prefix + title + " at " + company + " with " + str(f.ai_ml_months // 12) + " years of applied AI/ML at product companies" + annot + suffix + "."
-        return lead, "ai_depth"
-
-    # Has retrieval (12+ months)
-    if has_retrieval:
-        lead = prefix + title + " at " + company + " with " + retrieval_yrs + "+ years in ranking, retrieval, and search systems" + annot + suffix + "."
-        return lead, "retrieval"
-
-    # Has shipped
-    if f.shipped_count >= 1:
-        lead = prefix + title + " at " + company + " with production ML deployment experience" + annot + suffix + "."
-        return lead, "shipped"
-
-    # Fallback
-    yoe_str = str(round(f.yoe, 1))
-    lead = prefix + title + " at " + company + " with " + yoe_str + " years of experience" + annot + suffix + "."
-    return lead, "fallback"
-
+# ---------------------------------------------------------------------------
+# Part 1: Identity — who + most distinctive signal
+# ---------------------------------------------------------------------------
 
 _AI_FIELDS = {
     "artificial intelligence", "machine learning", "data science",
@@ -169,168 +51,474 @@ _CS_FIELDS = {
 }
 
 
-def _get_jd_phrase(f):
-    """Pick a JD-connection phrase — rotates among applicable phrases for diversity."""
-    applicable = []
-    if f.has_product_ai_career and f.shipped_count >= 1 and not f.is_consulting_only:
-        applicable.append("matches the JD's 'product over research' profile")
-    if f.career_retrieval_months >= 24:
-        applicable.append("directly fits the JD's production retrieval mandate")
-    if f.ai_ml_months >= 48 and f.shipped_count >= 1:
-        applicable.append("shows the pre-LLM production ML depth the JD values")
-    if f.vector_search_experience and f.career_retrieval_months >= 6:
-        applicable.append("vector DB proficiency aligns with the JD's hybrid search requirement")
-    if f.has_product_company and not f.is_consulting_only:
-        applicable.append("aligns with the JD's product-company preference")
-    avg_tenure = getattr(f, 'avg_tenure_months', 0.0)
-    if avg_tenure >= 30:
-        applicable.append("tenure fits the JD's 3+ year commitment preference")
-    if f.github_activity_score >= 60:
-        applicable.append("open-source presence provides JD-required external validation")
-    assess_ct = getattr(f, 'assessment_jd_count', 0)
-    if assess_ct >= 2:
-        applicable.append("platform assessment scores provide external skill validation")
-    sal_fit = getattr(f, 'salary_fits_role', 0)
-    if sal_fit >= 0.5:
-        applicable.append("salary expectations align with senior IC compensation at this stage")
-    if f.jd_skill_count >= 2:
-        applicable.append("skill set overlaps with multiple JD requirements")
-    if not applicable:
+def _domain(f):
+    if f.career_retrieval_months >= 12:
+        return "ranking and retrieval"
+    if f.ai_ml_months >= 36 and f.has_product_ai_career:
+        return "applied AI/ML at product companies"
+    if f.ai_ml_months >= 24:
+        return "applied AI/ML"
+    if f.shipped_count >= 2:
+        return "production ML"
+    return "software engineering"
+
+
+def _rank_prefix(f, rank):
+    is_strong = (f.career_retrieval_months >= 12 and f.has_product_ai_career
+                 and f.title_relevance_tier >= 3)
+    if rank >= 90 and not is_strong:
+        return "Borderline fit: "
+    if rank >= 70 and not is_strong:
+        return "Adequate but not strong: "
+    return ""
+
+
+def _build_identity(f, rank, h):
+    pfx = _rank_prefix(f, rank)
+    title = _safe_str(f.current_title) or "Engineer"
+    company = _safe_str(f.current_company) or "current employer"
+    notable = _safe_str(getattr(f, 'notable_company', ''))
+    inst = _safe_str(getattr(f, 'best_institution', ''))
+    field = _safe_str(getattr(f, 'best_field', ''))
+    domain = _domain(f)
+
+    r_mo = _safe_int(f, 'career_retrieval_months')
+    ai_mo = _safe_int(f, 'ai_ml_months')
+    r_yrs = r_mo // 12
+    ai_yrs = max(1, ai_mo // 12) if ai_mo >= 12 else round(_safe_float(f, 'yoe', 1.0), 1)
+    yoe = round(_safe_float(f, 'yoe', 1.0), 1)
+    career_count = _safe_int(f, 'num_roles', _safe_int(f, 'career_count', 1))
+
+    has_notable = bool(notable) and notable.lower() != company.lower()
+    edu_tier = _safe_int(f, 'best_education_tier', 99)
+    edu_rel = _safe_float(f, 'education_ai_relevance')
+    has_edu = edu_tier == 1 and bool(inst) and (
+        field.lower() in _AI_FIELDS or field.lower() in _CS_FIELDS
+        or edu_rel >= 0.5)
+
+    # Notable company leads
+    if has_notable and f.ai_ml_months >= 12:
+        templates = [
+            pfx + "Former " + notable + " engineer with " + str(ai_yrs) + " years in " + domain + ", now " + title + " at " + company + ".",
+            pfx + title + " at " + company + " who previously built ML systems at " + notable + ", bringing " + str(ai_yrs) + " years of " + domain + " experience.",
+            pfx + "Brings " + notable + " pedigree to " + company + " as " + title + ", with " + str(ai_yrs) + " years spanning " + domain + ".",
+        ]
+        return templates[h % len(templates)]
+
+    # Tier-1 education leads
+    if has_edu:
+        templates = [
+            pfx + inst + " " + field + " graduate, now " + title + " at " + company + " with " + str(ai_yrs) + " years in " + domain + ".",
+            pfx + title + " at " + company + " with an " + inst + " " + field + " background and " + str(ai_yrs) + " years of " + domain + " experience.",
+            pfx + "Trained in " + field + " at " + inst + ", now applying " + str(ai_yrs) + " years of " + domain + " expertise as " + title + " at " + company + ".",
+        ]
+        return templates[h % len(templates)]
+
+    # Deep retrieval (24+ months) at product companies
+    if r_yrs >= 2 and f.has_product_ai_career:
+        templates = [
+            pfx + str(r_yrs) + "-year retrieval specialist, currently " + title + " at " + company + ".",
+            pfx + title + " at " + company + " who has spent " + str(r_yrs) + " years building search and ranking systems at product companies.",
+            pfx + "Has built ranking systems for " + str(r_yrs) + " years across product companies, currently " + title + " at " + company + ".",
+            pfx + title + " at " + company + " with " + str(ai_yrs) + " years of applied ML, " + str(r_yrs) + " of which focused on retrieval and ranking.",
+            pfx + "Currently " + title + " at " + company + ", with " + str(r_yrs) + " years focused specifically on search, ranking, and retrieval systems.",
+        ]
+        return templates[h % len(templates)]
+
+    # Multiple shipped systems
+    if f.shipped_count >= 3:
+        ctx = "at product companies" if f.has_product_ai_career else "across " + str(career_count) + " roles"
+        templates = [
+            pfx + title + " at " + company + " who has shipped " + str(f.shipped_count) + " production ML systems " + ctx + ".",
+            pfx + "Has " + str(f.shipped_count) + " production ML deployments " + ctx + ", currently " + title + " at " + company + ".",
+        ]
+        return templates[h % len(templates)]
+
+    # Strong AI depth
+    if f.ai_ml_months >= 36 and f.has_product_ai_career:
+        templates = [
+            pfx + title + " at " + company + " with " + str(ai_yrs) + " years of production AI/ML at product companies.",
+            pfx + str(ai_yrs) + "-year ML practitioner across " + str(career_count) + " roles, currently " + title + " at " + company + ".",
+            pfx + "Seasoned AI/ML engineer with " + str(ai_yrs) + " years at product companies, currently " + title + " at " + company + ".",
+        ]
+        return templates[h % len(templates)]
+
+    # Has retrieval (12+ months)
+    if r_yrs >= 1:
+        templates = [
+            pfx + title + " at " + company + " with " + str(r_yrs) + "+ years in ranking and retrieval systems.",
+            pfx + title + " at " + company + " whose career includes " + str(r_yrs) + " years of retrieval-specific work.",
+        ]
+        return templates[h % len(templates)]
+
+    # Has shipped (1-2)
+    if f.shipped_count >= 1:
+        return pfx + title + " at " + company + " with " + str(f.shipped_count) + " production ML deployment" + ("s" if f.shipped_count > 1 else "") + " and " + str(yoe) + " years of experience."
+
+    # Fallback
+    templates = [
+        pfx + title + " at " + company + " with " + str(yoe) + " years of experience in " + domain + ".",
+        pfx + str(yoe) + "-year " + domain + " professional, currently " + title + " at " + company + ".",
+    ]
+    return templates[h % len(templates)]
+
+
+# ---------------------------------------------------------------------------
+# Part 2: Technical evidence — skills, depth, JD alignment
+# ---------------------------------------------------------------------------
+
+def _safe_str(val):
+    """Safely convert a field value to string, returning '' for None/NaN."""
+    if val is None:
         return ""
-    cid_hash = sum(ord(c) for c in f.candidate_id)
-    return applicable[cid_hash % len(applicable)]
+    s = str(val)
+    if s.lower() in ("none", "nan", ""):
+        return ""
+    return s
 
 
-def _get_support_signals(f, lead_type):
-    """Collect support signal fragments (lowercased, no period)."""
-    signals = []
-    notable = getattr(f, 'notable_company', '') or ''
-    best_inst = getattr(f, 'best_institution', '') or ''
-    best_field = getattr(f, 'best_field', '') or ''
-
-    country = str(f.country).lower()
-    if "india" in country:
-        if f.in_preferred_india_city:
-            city_name = str(f.city).split(",")[0].strip().title()
-            signals.append(city_name + "-based")
-        elif f.willing_to_relocate:
-            signals.append("willing to relocate within India")
-
-    if lead_type != "notable" and notable and notable.lower() != str(f.current_company).lower():
-        signals.append("previously at " + notable)
-
-    if lead_type != "education" and best_inst and f.best_education_tier <= 2:
-        tier_label = {1: "Tier-1", 2: "Tier-2"}.get(f.best_education_tier, "")
-        signals.append(tier_label + " " + best_inst + " background")
-
-    ml_certs = getattr(f, 'ml_cert_count', 0)
-    if lead_type != "certs" and ml_certs >= 1:
-        signals.append(str(ml_certs) + " ML/cloud cert" + ("s" if ml_certs > 1 else ""))
-
-    if f.open_to_work and f.recruiter_response_rate >= 0.7:
-        signals.append("strong engagement (" + str(int(f.recruiter_response_rate * 100)) + "% response rate)")
-    elif f.open_to_work:
-        signals.append("actively seeking roles")
-    elif f.recruiter_response_rate >= 0.7:
-        signals.append(str(int(f.recruiter_response_rate * 100)) + "% recruiter response rate")
-
-    if f.github_activity_score >= 50:
-        signals.append("GitHub score " + str(int(f.github_activity_score)))
-
-    if f.notice_period_days <= 30:
-        signals.append("available within 30 days")
-
-    return signals
+def _safe_int(f, attr, default=0):
+    """Safely get an int attribute."""
+    val = getattr(f, attr, default)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
 
 
-def _get_concerns(f, rank):
-    """Collect concern fragments (lowercased, no period)."""
+def _safe_float(f, attr, default=0.0):
+    """Safely get a float attribute."""
+    val = getattr(f, attr, default)
+    if val is None:
+        return default
+    try:
+        v = float(val)
+        return default if v != v else v  # NaN check
+    except (ValueError, TypeError):
+        return default
+
+
+def _build_technical(f, h):
+    parts = []
+    top_skill = _safe_str(f.top_matched_skill)
+    t1 = _safe_int(f, 'jd_tier1_skill_count')
+    jd_ct = _safe_int(f, 'jd_skill_count')
+    r_mo = _safe_int(f, 'career_retrieval_months')
+    ai_mo = _safe_int(f, 'ai_ml_months')
+    shipped = _safe_int(f, 'shipped_count')
+    vec = getattr(f, 'vector_search_experience', False)
+    coherence = _safe_float(f, 'skill_career_coherence')
+
+    # Skill evidence
+    if top_skill and t1 >= 3:
+        skill_phrases = [
+            "Core competency in " + top_skill + " with " + str(t1) + " JD-critical skills matched",
+            "Primary strength in " + top_skill + ", plus " + str(t1 - 1) + " other core JD skills",
+            "Skill profile centers on " + top_skill + " and " + str(t1 - 1) + " other JD-priority areas",
+            top_skill + " expertise backed by " + str(t1) + " JD-aligned technical skills",
+        ]
+        parts.append(skill_phrases[h % len(skill_phrases)])
+    elif top_skill and t1 >= 1:
+        extra = " and " + str(t1 - 1) + " other JD skill" + ("s" if t1 > 2 else "") if t1 >= 2 else ""
+        parts.append("matched on " + top_skill + extra)
+    elif top_skill:
+        parts.append("some skill overlap via " + top_skill)
+    elif jd_ct >= 2:
+        parts.append(str(jd_ct) + " JD-relevant skills identified")
+
+    # Depth evidence
+    if r_mo >= 24 and shipped >= 2:
+        depth_phrases = [
+            str(r_mo) + " months of retrieval work with " + str(shipped) + " shipped systems",
+            str(shipped) + " production deployments across " + str(r_mo // 12) + " years of retrieval-focused work",
+        ]
+        parts.append(depth_phrases[h % len(depth_phrases)])
+    elif r_mo >= 12:
+        r_yrs = r_mo // 12
+        parts.append(str(r_yrs) + " year" + ("s" if r_yrs != 1 else "") + " in retrieval/ranking roles")
+    elif ai_mo >= 24 and shipped >= 1:
+        yrs = ai_mo // 12
+        parts.append(str(yrs) + " year" + ("s" if yrs != 1 else "") + " in AI/ML with " + str(shipped) + " production deployment" + ("s" if shipped > 1 else ""))
+    elif ai_mo >= 12:
+        yrs = ai_mo // 12
+        parts.append(str(yrs) + " year" + ("s" if yrs != 1 else "") + " in AI/ML roles")
+
+    # Vector DB
+    if vec and "vector" not in " ".join(parts).lower():
+        parts.append("hands-on vector DB experience")
+
+    # Coherence flag (only if notably low and has enough skills to judge)
+    if coherence < 0.2 and jd_ct >= 3:
+        parts.append("though skill-career coherence is low (" + str(round(coherence, 2)) + ")")
+
+    if not parts:
+        return ""
+
+    # Join — use semicolons for clarity when multiple parts
+    if len(parts) == 1:
+        joined = parts[0]
+    elif len(parts) == 2:
+        connectors = ["; ", " — ", " and ", ", plus "]
+        joined = parts[0] + connectors[h % len(connectors)] + parts[1]
+    else:
+        joined = "; ".join(parts)
+
+    # Sentence wrapper
+    wrappers = [
+        joined + ".",
+        "Technical profile: " + joined + ".",
+    ]
+    return wrappers[h % len(wrappers)]
+
+
+# ---------------------------------------------------------------------------
+# Part 3: Context — JD connection, support, concerns
+# ---------------------------------------------------------------------------
+
+def _build_context(f, rank, h):
+    positives = []
     concerns = []
 
-    if f.notice_period_days > 90:
-        concerns.append("notice period " + str(f.notice_period_days) + "d")
-    elif rank >= 3 and f.notice_period_days > 30:
-        concerns.append("notice period " + str(f.notice_period_days) + "d (JD prefers sub-30)")
-    if f.recruiter_response_rate < 0.25:
-        concerns.append("low recruiter responsiveness")
-    if f.is_consulting_only:
-        concerns.append("consulting-only background")
-    if f.days_since_active > 180:
-        concerns.append("inactive on platform 6+ months")
-    country = str(f.country).lower()
+    # JD connection phrases
+    jd = _jd_phrase(f, h)
+    if jd:
+        positives.append(jd)
+
+    # Location
+    country = _safe_str(getattr(f, 'country', '')).lower()
+    if "india" in country and getattr(f, 'in_preferred_india_city', False):
+        city = _safe_str(getattr(f, 'city', '')).split(",")[0].strip().title()
+        if city:
+            positives.append(city + "-based")
+    elif "india" in country and getattr(f, 'willing_to_relocate', False):
+        positives.append("India-based, willing to relocate")
+
+    # Engagement
+    rr = _safe_float(f, 'recruiter_response_rate')
+    otw = getattr(f, 'open_to_work', False)
+    if otw and rr >= 0.7:
+        positives.append(str(int(rr * 100)) + "% recruiter response rate and actively looking")
+    elif rr >= 0.7:
+        positives.append(str(int(rr * 100)) + "% recruiter response rate")
+    elif otw:
+        positives.append("actively seeking new roles")
+
+    # GitHub
+    gh = _safe_float(f, 'github_activity_score', -1)
+    if gh >= 60:
+        positives.append("GitHub activity score " + str(int(gh)) + " (external validation)")
+
+    # Availability
+    if _safe_int(f, 'notice_period_days') <= 30:
+        positives.append("available within 30 days")
+
+    # Education (if not in lead)
+    inst = _safe_str(getattr(f, 'best_institution', ''))
+    edu_tier = _safe_int(f, 'best_education_tier', 99)
+    if inst and edu_tier <= 2:
+        tier = {1: "Tier-1", 2: "Tier-2"}.get(edu_tier, "")
+        positives.append(tier + " " + inst + " background")
+
+    # Notable company (if not in lead)
+    notable = _safe_str(getattr(f, 'notable_company', ''))
+    if notable and notable.lower() != _safe_str(f.current_company).lower():
+        positives.append("previously at " + notable)
+
+    # Certs
+    ml_certs = _safe_int(f, 'ml_cert_count')
+    if ml_certs >= 2:
+        positives.append(str(ml_certs) + " ML/cloud certifications")
+
+    # --- Concerns ---
+    notice = _safe_int(f, 'notice_period_days')
+    response_rate = _safe_float(f, 'recruiter_response_rate')
+    days_inactive = _safe_int(f, 'days_since_active')
+
+    if notice > 90:
+        concerns.append(str(notice) + "-day notice period")
+    elif rank >= 5 and notice > 30:
+        concerns.append(str(notice) + "d notice (JD prefers sub-30)")
+
+    if response_rate < 0.20:
+        concerns.append("low platform responsiveness (" + str(int(response_rate * 100)) + "%)")
+
+    if getattr(f, 'is_consulting_only', False):
+        concerns.append("consulting-only career background")
+
+    if days_inactive > 180:
+        concerns.append("inactive on platform for " + str(days_inactive // 30) + " months")
+
     if "india" not in country:
         concerns.append("based outside India")
-    if f.is_cv_only_title:
-        concerns.append("CV/robotics specialist rather than NLP/IR")
 
-    if rank >= 10:
-        if not f.open_to_work:
-            concerns.append("not marked open to opportunities")
-        if f.title_relevance_tier <= 1 and f.ai_ml_months > 0:
-            concerns.append("non-engineering title")
+    if getattr(f, 'is_cv_only_title', False):
+        concerns.append("CV/robotics focus rather than NLP/IR")
+
+    if rank >= 10 and not getattr(f, 'open_to_work', False):
+        concerns.append("not marked open to work")
+
+    r_mo = _safe_int(f, 'career_retrieval_months')
+    ai_mo = _safe_int(f, 'ai_ml_months')
+    shipped = _safe_int(f, 'shipped_count')
 
     if rank >= 40:
-        if f.career_retrieval_months < 12 and f.ai_ml_months >= 12:
-            concerns.append("limited retrieval-specific experience")
-        avg_tenure = getattr(f, 'avg_tenure_months', 0.0)
+        if r_mo < 12 and ai_mo >= 12:
+            concerns.append("limited retrieval-specific depth")
+        avg_tenure = _safe_float(f, 'avg_tenure_months')
         if 0 < avg_tenure < 18:
-            concerns.append("short tenure pattern")
+            concerns.append("avg tenure " + str(int(avg_tenure)) + " months (short)")
 
     if rank >= 80 and not concerns:
-        if f.career_retrieval_months < 24:
-            concerns.append("weak retrieval depth for this JD")
-        if f.shipped_count < 1:
+        if r_mo < 24:
+            concerns.append("retrieval depth below top-tier for this JD")
+        if shipped < 1:
             concerns.append("no confirmed production deployments")
 
-    return concerns
+    # --- Assemble ---
 
+    # Deduplicate positives against what's already in lead/technical
+    # (keep first 3 positives max, first 2 concerns max)
+    pos = positives[:3]
+    neg = concerns[:2]
 
-def _build_second_sentence(f, rank, lead_type):
-    """Compose JD connection + support + concerns into one sentence."""
-    jd = _get_jd_phrase(f)
-    support = _get_support_signals(f, lead_type)
-    concerns = _get_concerns(f, rank)
-
-    pos_parts = []
-    if jd:
-        pos_parts.append(jd)
-    pos_parts.extend(support[:2])
-
-    neg_parts = concerns[:2]
-
-    if not pos_parts and not neg_parts:
+    if not pos and not neg:
         return ""
 
-    # Build the sentence
-    if rank >= 90:
-        if neg_parts:
-            neg_str = "; ".join(neg_parts)
-            if pos_parts:
-                pos_str = ", ".join(pos_parts[:2])
-                return pos_str[0].upper() + pos_str[1:] + " but ranked as fringe candidate due to " + neg_str + "."
-            return "Ranked as fringe candidate: " + neg_str + "."
-        pos_str = ", ".join(pos_parts[:2])
-        return pos_str[0].upper() + pos_str[1:] + " but overall a borderline fit for this JD."
+    # Varied assembly based on rank tier and hash
+    if rank <= 5:
+        return _assemble_top(pos, neg, h)
+    if rank <= 30:
+        return _assemble_strong(pos, neg, h)
+    if rank <= 69:
+        return _assemble_mid(pos, neg, h)
+    if rank <= 89:
+        return _assemble_lower(pos, neg, h)
+    return _assemble_tail(pos, neg, h)
 
-    if rank >= 70:
-        if neg_parts:
-            neg_str = "; ".join(neg_parts)
-            if pos_parts:
-                pos_str = " and ".join(pos_parts[:2]) if len(pos_parts) <= 2 else ", ".join(pos_parts[:2])
-                return pos_str[0].upper() + pos_str[1:] + "; however " + neg_str + "."
-            return "Some concern: " + neg_str + "."
-        pos_str = " and ".join(pos_parts[:2])
-        return pos_str[0].upper() + pos_str[1:] + "."
 
-    # Rank 1-69: positive-led, concerns as "but" clause
-    if pos_parts and neg_parts:
-        pos_str = " and ".join(pos_parts[:2]) if len(pos_parts) <= 2 else ", ".join(pos_parts[:2])
-        neg_str = "; ".join(neg_parts[:1])
-        return pos_str[0].upper() + pos_str[1:] + "; some concern on " + neg_str + "."
+def _assemble_top(pos, neg, h):
+    if pos:
+        joined = ", ".join(pos[:3])
+        starters = [
+            joined[0].upper() + joined[1:] + ".",
+            "Strong signals: " + joined + ".",
+        ]
+        s = starters[h % len(starters)]
+        if neg:
+            s = s[:-1] + "; minor note: " + neg[0] + "."
+        return s
+    return ""
 
-    if pos_parts:
-        pos_str = " and ".join(pos_parts[:2]) if len(pos_parts) <= 2 else ", ".join(pos_parts[:3])
-        return pos_str[0].upper() + pos_str[1:] + "."
 
-    neg_str = "; ".join(neg_parts)
-    return "Some concern: " + neg_str + "."
+def _assemble_strong(pos, neg, h):
+    if pos and neg:
+        p = ", ".join(pos[:2])
+        templates = [
+            p[0].upper() + p[1:] + "; some concern on " + neg[0] + ".",
+            p[0].upper() + p[1:] + " — though " + neg[0] + ".",
+            p[0].upper() + p[1:] + ". Note: " + neg[0] + ".",
+        ]
+        return templates[h % len(templates)]
+    if pos:
+        p = " and ".join(pos[:2])
+        return p[0].upper() + p[1:] + "."
+    return "Some concern: " + "; ".join(neg[:2]) + "."
+
+
+def _assemble_mid(pos, neg, h):
+    if pos and neg:
+        p = ", ".join(pos[:2])
+        n = "; ".join(neg[:2])
+        templates = [
+            p[0].upper() + p[1:] + ", but " + n + ".",
+            p[0].upper() + p[1:] + "; however " + n + ".",
+            "Positives: " + p + ". Concern: " + n + ".",
+        ]
+        return templates[h % len(templates)]
+    if pos:
+        p = " and ".join(pos[:2])
+        return p[0].upper() + p[1:] + "."
+    if neg:
+        return "Concern: " + "; ".join(neg) + "."
+    return ""
+
+
+def _assemble_lower(pos, neg, h):
+    if pos and neg:
+        p = pos[0]
+        n = "; ".join(neg[:2])
+        templates = [
+            p[0].upper() + p[1:] + ", but weighed down by " + n + ".",
+            p[0].upper() + p[1:] + "; ranked lower due to " + n + ".",
+        ]
+        return templates[h % len(templates)]
+    if neg:
+        n = "; ".join(neg[:2])
+        templates = [
+            "Ranked in lower tier due to " + n + ".",
+            "Main gaps: " + n + ".",
+        ]
+        return templates[h % len(templates)]
+    if pos:
+        return pos[0][0].upper() + pos[0][1:] + "."
+    return ""
+
+
+def _assemble_tail(pos, neg, h):
+    if neg:
+        n = "; ".join(neg[:2])
+        if pos:
+            p = pos[0]
+            templates = [
+                p[0].upper() + p[1:] + " but fringe candidate due to " + n + ".",
+                "Despite " + p + ", ranked at tail: " + n + ".",
+            ]
+            return templates[h % len(templates)]
+        templates = [
+            "Fringe candidate: " + n + ".",
+            "At the edge of top 100: " + n + ".",
+        ]
+        return templates[h % len(templates)]
+    if pos:
+        p = ", ".join(pos[:2])
+        return p[0].upper() + p[1:] + " — borderline fit for this specific JD."
+    return ""
+
+
+def _jd_phrase(f, h):
+    """Pick a JD-connection phrase — rotates among applicable ones."""
+    applicable = []
+    shipped = _safe_int(f, 'shipped_count')
+    r_mo = _safe_int(f, 'career_retrieval_months')
+    ai_mo = _safe_int(f, 'ai_ml_months')
+
+    if getattr(f, 'has_product_ai_career', False) and shipped >= 1 and not getattr(f, 'is_consulting_only', False):
+        applicable.append("fits the JD's 'product over research' requirement")
+    if r_mo >= 24:
+        applicable.append("directly matches the JD's retrieval systems mandate")
+    if ai_mo >= 48 and shipped >= 1:
+        applicable.append("pre-LLM production ML depth that the JD specifically values")
+    if getattr(f, 'vector_search_experience', False) and r_mo >= 6:
+        applicable.append("vector DB proficiency aligns with JD's hybrid search needs")
+    if getattr(f, 'has_product_company', False) and not getattr(f, 'is_consulting_only', False):
+        applicable.append("product-company track record matches JD preference")
+    avg_tenure = _safe_float(f, 'avg_tenure_months')
+    if avg_tenure >= 30:
+        applicable.append("strong tenure pattern (" + str(int(avg_tenure)) + " months avg)")
+    gh = _safe_float(f, 'github_activity_score', -1)
+    if gh >= 60:
+        applicable.append("open-source activity provides the external validation JD requires")
+    assess_ct = _safe_int(f, 'assessment_jd_count')
+    if assess_ct >= 2:
+        applicable.append("platform assessments back up claimed proficiency")
+    sal_fit = _safe_float(f, 'salary_fits_role')
+    if sal_fit >= 0.5:
+        applicable.append("salary expectation aligns with senior IC band")
+    jd_ct = _safe_int(f, 'jd_skill_count')
+    if jd_ct >= 4:
+        applicable.append("broad skill overlap across " + str(jd_ct) + " JD requirements")
+    if not applicable:
+        return ""
+    return applicable[h % len(applicable)]
