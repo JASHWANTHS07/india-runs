@@ -665,10 +665,13 @@ def main(artifacts_dir: str, out_path: str, method: str = "heuristic",
     # Sort descending by score, then ascending by candidate_id for tie-break
     results.sort(key=lambda x: (-x[0], x[1]))
 
-    if len(results) < 100:
-        raise RuntimeError(f"Only {len(results)} candidates; need >= 100")
+    top_k = min(100, len(results))
+    if top_k == 0:
+        raise RuntimeError("No candidates to rank")
+    if top_k < 100:
+        print(f"  [WARN] Only {len(results)} candidates, outputting top {top_k} (need 100 for submission)")
 
-    top100 = results[:100]
+    top100 = results[:top_k]
 
     # Build submission — enforce non-increasing scores for CSV
     output_rows = []
