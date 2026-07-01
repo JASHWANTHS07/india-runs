@@ -83,61 +83,75 @@ def _build_lead(f, rank):
     else:
         prefix = ""
 
-    # Priority 0: Deep retrieval specialist (retrieval is JD's #1 requirement)
-    if f.career_retrieval_months >= 24 and f.has_product_ai_career and f.shipped_count >= 1:
-        yrs = str(f.career_retrieval_months // 12)
-        lead = prefix + yrs + "-year retrieval/ranking specialist, currently " + title + " at " + company + annot + suffix + "."
-        return lead, "retrieval_deep"
+    # Diverse lead selection — pick the MOST DISTINCTIVE signal per candidate
+    # to avoid all top-100 sharing the same "X-year retrieval specialist" template.
+    # Use candidate_id hash to break ties when multiple leads qualify.
+    cid_hash = sum(ord(c) for c in f.candidate_id) % 7
+    retrieval_yrs = str(f.career_retrieval_months // 12) if f.career_retrieval_months >= 12 else "0"
+    ai_yrs = str(max(1, f.ai_ml_months // 12)) if f.ai_ml_months >= 12 else str(round(f.yoe, 1))
 
-    # Priority 1: Notable past company
+    # Notable past company — always wins when available (rare: ~3%)
     if has_notable and f.ai_ml_months >= 12:
-        yrs = str(max(1, f.ai_ml_months // 12))
-        lead = prefix + "Former " + notable + " engineer, now " + title + " at " + company + " with " + yrs + "+ years in " + domain + annot + suffix + "."
+        lead = prefix + "Former " + notable + " engineer, now " + title + " at " + company + " with " + ai_yrs + "+ years in " + domain + annot + suffix + "."
         return lead, "notable"
 
-    # Priority 2: Tier-1 education + AI/CS field
+    # Tier-1 education — wins when available (relatively rare)
     if has_tier1_edu and (best_field.lower() in _AI_FIELDS or best_field.lower() in _CS_FIELDS or f.education_ai_relevance >= 0.5):
-        yrs = str(max(1, f.ai_ml_months // 12)) if f.ai_ml_months >= 12 else str(round(f.yoe, 1))
-        lead = prefix + title + " at " + company + ", " + best_inst + " " + best_field + " graduate with " + yrs + " years in " + domain + annot + suffix + "."
+        lead = prefix + title + " at " + company + ", " + best_inst + " " + best_field + " graduate with " + ai_yrs + " years in " + domain + annot + suffix + "."
         return lead, "education"
 
-    # Priority 3: Deep retrieval (>=48 months) + product company
-    if has_deep_retrieval and f.has_product_ai_career:
-        yrs = str(f.career_retrieval_months // 12)
-        lead = prefix + title + " at " + company + " with " + yrs + "+ years building ranking and retrieval systems at product companies" + annot + suffix + "."
+    # For candidates with deep retrieval — rotate among diverse phrasings
+    if f.career_retrieval_months >= 24 and f.has_product_ai_career:
+        variant = cid_hash % 5
+        if variant == 0:
+            lead = prefix + retrieval_yrs + "-year retrieval/ranking specialist, currently " + title + " at " + company + annot + suffix + "."
+            return lead, "retrieval_deep"
+        elif variant == 1 and f.shipped_count >= 1:
+            lead = prefix + title + " at " + company + " with " + str(f.shipped_count) + " shipped search/ranking systems and " + retrieval_yrs + " years in retrieval" + annot + suffix + "."
+            return lead, "shipped_retrieval"
+        elif variant == 2 and f.vector_search_experience:
+            lead = prefix + title + " at " + company + " combining " + retrieval_yrs + " years of retrieval with hands-on vector DB experience" + annot + suffix + "."
+            return lead, "vector_retrieval"
+        elif variant == 3:
+            lead = prefix + title + " at " + company + " with " + ai_yrs + " years of applied AI/ML, including " + retrieval_yrs + " years focused on ranking and retrieval" + annot + suffix + "."
+            return lead, "ai_with_retrieval"
+        else:
+            lead = prefix + title + " at " + company + " with deep production experience in search, ranking, and recommendation systems" + annot + suffix + "."
+            return lead, "production_search"
+
+    # Deep retrieval without product AI
+    if f.career_retrieval_months >= 48:
+        lead = prefix + title + " at " + company + " with " + retrieval_yrs + "+ years building ranking and retrieval systems" + annot + suffix + "."
         return lead, "retrieval"
 
-    # Priority 4: Multiple shipped systems (>=3)
+    # Multiple shipped systems (>=3)
     if has_multi_shipped:
         companies_str = "at product companies" if f.has_product_ai_career else "across multiple roles"
         lead = prefix + title + " at " + company + " with " + str(f.shipped_count) + " production ML deployments " + companies_str + annot + suffix + "."
         return lead, "shipped"
 
-    # Priority 5: ML certifications (>=2)
+    # ML certifications (>=2)
     if has_ml_certs:
         cert_count = getattr(f, 'ml_cert_count', 0)
-        yrs = str(max(1, f.ai_ml_months // 12)) if f.ai_ml_months >= 12 else str(round(f.yoe, 1))
-        lead = prefix + title + " at " + company + ", holds " + str(cert_count) + " ML/cloud certifications, with " + yrs + " years in " + domain + annot + suffix + "."
+        lead = prefix + title + " at " + company + ", holds " + str(cert_count) + " ML/cloud certifications, with " + ai_yrs + " years in " + domain + annot + suffix + "."
         return lead, "certs"
 
-    # Priority 6: Strong AI depth (ai_ml_months >= 36) + product
+    # Strong AI depth + product
     if has_deep_ai and f.has_product_ai_career:
-        yrs = str(f.ai_ml_months // 12)
-        lead = prefix + title + " at " + company + " with " + yrs + " years of applied AI/ML at product companies" + annot + suffix + "."
+        lead = prefix + title + " at " + company + " with " + str(f.ai_ml_months // 12) + " years of applied AI/ML at product companies" + annot + suffix + "."
         return lead, "ai_depth"
 
-    # Priority 7: Has retrieval (career_retrieval_months >= 12)
+    # Has retrieval (12+ months)
     if has_retrieval:
-        yrs = str(f.career_retrieval_months // 12)
-        lead = prefix + title + " at " + company + " with " + yrs + "+ years in ranking, retrieval, and search systems" + annot + suffix + "."
+        lead = prefix + title + " at " + company + " with " + retrieval_yrs + "+ years in ranking, retrieval, and search systems" + annot + suffix + "."
         return lead, "retrieval"
 
-    # Priority 8: Has shipped
+    # Has shipped
     if f.shipped_count >= 1:
         lead = prefix + title + " at " + company + " with production ML deployment experience" + annot + suffix + "."
         return lead, "shipped"
 
-    # Priority 9: Fallback
+    # Fallback
     yoe_str = str(round(f.yoe, 1))
     lead = prefix + title + " at " + company + " with " + yoe_str + " years of experience" + annot + suffix + "."
     return lead, "fallback"
@@ -156,31 +170,35 @@ _CS_FIELDS = {
 
 
 def _get_jd_phrase(f):
-    """Pick the single best JD-connection phrase."""
+    """Pick a JD-connection phrase — rotates among applicable phrases for diversity."""
+    applicable = []
     if f.has_product_ai_career and f.shipped_count >= 1 and not f.is_consulting_only:
-        return "matches the JD's 'product over research' profile"
+        applicable.append("matches the JD's 'product over research' profile")
     if f.career_retrieval_months >= 24:
-        return "directly fits the JD's production retrieval mandate"
+        applicable.append("directly fits the JD's production retrieval mandate")
     if f.ai_ml_months >= 48 and f.shipped_count >= 1:
-        return "shows the pre-LLM production ML depth the JD values"
+        applicable.append("shows the pre-LLM production ML depth the JD values")
     if f.vector_search_experience and f.career_retrieval_months >= 6:
-        return "vector DB proficiency aligns with the JD's hybrid search requirement"
+        applicable.append("vector DB proficiency aligns with the JD's hybrid search requirement")
     if f.has_product_company and not f.is_consulting_only:
-        return "aligns with the JD's product-company preference"
+        applicable.append("aligns with the JD's product-company preference")
     avg_tenure = getattr(f, 'avg_tenure_months', 0.0)
     if avg_tenure >= 30:
-        return "tenure fits the JD's 3+ year commitment preference"
+        applicable.append("tenure fits the JD's 3+ year commitment preference")
     if f.github_activity_score >= 60:
-        return "open-source presence provides JD-required external validation"
+        applicable.append("open-source presence provides JD-required external validation")
     assess_ct = getattr(f, 'assessment_jd_count', 0)
     if assess_ct >= 2:
-        return "platform assessment scores provide external skill validation"
+        applicable.append("platform assessment scores provide external skill validation")
     sal_fit = getattr(f, 'salary_fits_role', 0)
     if sal_fit >= 0.5:
-        return "salary expectations align with senior IC compensation at this stage"
+        applicable.append("salary expectations align with senior IC compensation at this stage")
     if f.jd_skill_count >= 2:
-        return "skill set overlaps with multiple JD requirements"
-    return ""
+        applicable.append("skill set overlaps with multiple JD requirements")
+    if not applicable:
+        return ""
+    cid_hash = sum(ord(c) for c in f.candidate_id)
+    return applicable[cid_hash % len(applicable)]
 
 
 def _get_support_signals(f, lead_type):

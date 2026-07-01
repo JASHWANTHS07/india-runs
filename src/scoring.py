@@ -83,11 +83,13 @@ def availability_modifier(f):
     if nd <= 30:
         notice_factor = 1.00
     elif nd <= 60:
-        notice_factor = 0.97
+        notice_factor = 0.98
     elif nd <= 90:
-        notice_factor = 0.90
+        notice_factor = 0.94
+    elif nd <= 120:
+        notice_factor = 0.88
     else:
-        notice_factor = max(0.65, 1.0 - (nd - 60) / 200.0)
+        notice_factor = max(0.80, 1.0 - (nd - 60) / 300.0)
     country = f.country.lower()
     if "india" in country:
         if f.in_preferred_india_city:
