@@ -8,7 +8,6 @@ build/
 *.npy
 *.parquet
 .env
-CLAUDE.md
 
 # Data directory (large files, not for version control)
 Data/India_runs_data_and_ai_challenge
@@ -19,6 +18,7 @@ submissions/
 notebooks/redrob_local.ipynb
 Idea_Submission_redrob.pptx
 sample.csv
+CLAUDE.md
 
 # macOS junk
 .DS_Store
