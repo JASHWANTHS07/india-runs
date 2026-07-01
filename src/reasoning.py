@@ -72,10 +72,13 @@ def _build_lead(f, rank):
     has_deep_ai = f.ai_ml_months >= 36
     has_retrieval = f.career_retrieval_months >= 12
 
-    # Rank-tier prefix for tail candidates
-    if rank >= 90:
+    # Rank-tier prefix — based on candidate signals, not just rank position
+    # Strong candidates ranked low (due to tie-breaking) shouldn't get "borderline"
+    is_strong = (f.career_retrieval_months >= 12 and f.has_product_ai_career
+                 and f.title_relevance_tier >= 3)
+    if rank >= 90 and not is_strong:
         prefix = "Borderline fit: "
-    elif rank >= 70:
+    elif rank >= 70 and not is_strong:
         prefix = "Adequate but not strong: "
     else:
         prefix = ""
