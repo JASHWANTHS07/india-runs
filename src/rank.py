@@ -145,24 +145,27 @@ def create_pseudo_labels(df: pd.DataFrame) -> np.ndarray:
             continue
 
         # Grade 4: perfect domain fit
-        if (tier >= 3 and retrieval_mo >= 18 and has_product
-                and shipped >= 1 and "india" in country
-                and cross_enc >= 0.3):
+        if (tier >= 3 and retrieval_mo >= 12 and has_product
+                and shipped >= 1 and "india" in country):
             labels[i] = 4
             continue
 
         # Grade 3: strong domain fit
-        if tier >= 3 and ai_mo >= 18 and has_product and retrieval_mo >= 6:
+        if tier >= 3 and ai_mo >= 12 and has_product and retrieval_mo >= 3:
             labels[i] = 3
-            if cross_enc >= 0.5 and retrieval_mo >= 18:
-                labels[i] = 4
+            continue
+        if tier >= 3 and retrieval_mo >= 12 and shipped >= 1:
+            labels[i] = 3
             continue
 
-        # Grade 2: moderate
-        if tier >= 3 and ai_mo >= 12 and retrieval_mo >= 3:
+        # Grade 2: moderate — relaxed to capture more signal
+        if tier >= 3 and ai_mo >= 6:
             labels[i] = 2
             continue
-        if tier == 4 and ai_mo < 12 and coherence >= 0.3:
+        if tier >= 2 and ai_mo >= 12 and coherence >= 0.3:
+            labels[i] = 2
+            continue
+        if tier == 4 and coherence >= 0.25:
             labels[i] = 2
             continue
 
@@ -597,14 +600,15 @@ def main(artifacts_dir: str, out_path: str, method: str = "heuristic",
             dtest = xgb.DMatrix(X_all_np)
             ltr_scores = ltr_model.predict(dtest)
 
-            # Sigmoid normalization (preserves score gaps at the top)
+            # Min-max normalization on raw XGBoost scores (top-focused)
             qualified_indices = np.where(qualified_mask.values)[0]
             final_scores = np.zeros(N, dtype=np.float32)
             q_scores = ltr_scores[qualified_indices]
-            median_q = np.median(q_scores)
-            iqr = np.percentile(q_scores, 75) - np.percentile(q_scores, 25)
-            scale = max(iqr * 0.5, 0.01)
-            q_final = 1.0 / (1.0 + np.exp(-(q_scores - median_q) / scale))
+            q_min, q_max = q_scores.min(), q_scores.max()
+            if q_max > q_min:
+                q_final = (q_scores - q_min) / (q_max - q_min)
+            else:
+                q_final = np.full_like(q_scores, 0.5)
             final_scores[qualified_indices] = q_final
 
             # Zero out honeypots within qualified pool
