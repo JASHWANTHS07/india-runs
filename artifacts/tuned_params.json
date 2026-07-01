@@ -1,16 +1,16 @@
 {
   "params": {
     "framework": "xgboost",
-    "xgb_objective": "rank:pairwise",
-    "lr": 0.12742803817618759,
-    "max_depth": 5,
-    "min_child_weight": 3,
-    "subsample": 0.8455542806769354,
-    "colsample_bytree": 0.6200014878180092,
-    "gamma": 1.2341500381836825,
-    "reg_lambda": 0.2920853078701341,
-    "reg_alpha": 0.10766166045463532
+    "xgb_objective": "rank:ndcg",
+    "lr": 0.06457356150107575,
+    "max_depth": 6,
+    "min_child_weight": 1,
+    "subsample": 0.923234545543487,
+    "colsample_bytree": 0.8284843452391346,
+    "gamma": 0.7661643351024852,
+    "reg_lambda": 3.2409463990532346,
+    "reg_alpha": 1.5329262427372647
   },
-  "n_rounds": 10,
+  "n_rounds": 21,
   "val_ndcg10": 1.0
 }
