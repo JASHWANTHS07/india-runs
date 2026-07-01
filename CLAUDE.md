@@ -4,7 +4,7 @@
 
 Redrob Hackathon submission by Jashwanth Sangu (solo). Rank 100,000 candidates against a fixed JD (Senior AI Engineer, Redrob AI) and produce a top-100 CSV with scores and reasoning.
 
-**Deadline:** July 1, 2026 (tomorrow night). 3 submissions max — none used yet.
+**Deadline:** July 1, 2026 (tomorrow night). 3 submissions max — 2 left.
 
 **Scoring formula:**
 ```
