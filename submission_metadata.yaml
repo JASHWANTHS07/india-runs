@@ -20,9 +20,9 @@ team_members:
 
 github_repo: "https://github.com/JASHWANTHS07/india-runs"
 
-sandbox_link: "https://colab.research.google.com/github/JASHWANTHS07/india-runs/blob/main/redrob_pipeline.ipynb"
-# Google Colab notebook — clones repo, extracts dataset, runs full pipeline end-to-end.
-# For small-sample sandbox: python run_pipeline.py --run_sample sample_candidates.json --out sample_output.csv
+sandbox_link: "https://colab.research.google.com/github/JASHWANTHS07/india-runs/blob/main/notebooks/redrob_pipeline.ipynb"
+# Google Colab notebook — Section 1 runs sample pipeline on CPU (no GPU needed, ~3 min).
+# Section 2 runs full 100K pipeline with GPU. Sandbox reviewers only need Section 1.
 
 reproduce_command: "python src/rank.py --artifacts ./artifacts --out ./jashwanth_s.csv --method xgboost"
 # Ranking step only — runs in <3 min on CPU with 16GB RAM, no GPU, no network.
