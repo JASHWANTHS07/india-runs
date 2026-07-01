@@ -640,14 +640,23 @@ def main(artifacts_dir: str, out_path: str, method: str = "heuristic",
         if f.technical_yoe < 5.0:
             final_scores[i] = 0.0
 
-    # Round to 4 decimals BEFORE sorting (so tie-break matches CSV output)
-    final_scores_rounded = np.round(final_scores, 4)
+    # Blend XGBoost + heuristic for fine-grained discrimination
+    # XGBoost selects the right pool; heuristic provides within-pool ordering
+    if method == "xgboost":
+        h_arr = np.array(heuristic_scores, dtype=np.float64)
+        h_max = h_arr.max()
+        if h_max > 0:
+            h_norm = h_arr / h_max
+        else:
+            h_norm = h_arr
+        blended = 0.6 * final_scores.astype(np.float64) + 0.4 * h_norm
+        final_scores = blended.astype(np.float32)
 
-    # Build results and sort
+    # Sort by FULL PRECISION scores, round only for CSV output
     results = []
     for i in range(N):
         results.append((
-            final_scores_rounded[i],
+            float(final_scores[i]),
             features_df.iloc[i]["candidate_id"],
             feature_objects[i],
             float(semantic_scores[i]),
@@ -661,14 +670,19 @@ def main(artifacts_dir: str, out_path: str, method: str = "heuristic",
 
     top100 = results[:100]
 
-    # Build submission
+    # Build submission — enforce non-increasing scores for CSV
     output_rows = []
+    prev_score = None
     for rank_idx, (score, cand_id, f, sim) in enumerate(top100, start=1):
+        display_score = round(float(score), 6)
+        if prev_score is not None and display_score > prev_score:
+            display_score = prev_score
+        prev_score = display_score
         reasoning = generate_reasoning(f, rank=rank_idx, semantic_sim=sim)
         output_rows.append({
             "candidate_id": cand_id,
             "rank": rank_idx,
-            "score": float(score),
+            "score": display_score,
             "reasoning": reasoning,
         })
 
