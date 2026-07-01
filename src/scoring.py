@@ -93,13 +93,16 @@ def availability_modifier(f):
     country = f.country.lower()
     if "india" in country:
         if f.in_preferred_india_city:
-            loc_factor = 1.15
+            loc_factor = 1.10
         elif f.willing_to_relocate:
             loc_factor = 1.05
         else:
-            loc_factor = 0.95
+            loc_factor = 1.00
     else:
-        loc_factor = 0.50
+        if f.willing_to_relocate:
+            loc_factor = 0.75
+        else:
+            loc_factor = 0.70
     return notice_factor * loc_factor
 
 
