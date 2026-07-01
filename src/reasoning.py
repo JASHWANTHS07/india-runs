@@ -107,9 +107,10 @@ def _build_identity(f, rank, h):
 
     # Tier-1 education leads
     if has_edu:
+        starts_vowel_sound = inst[0:1].upper() in "AEIOU" and not inst.upper().startswith(("UC ", "UNI"))
         templates = [
             pfx + inst + " " + field + " graduate, now " + title + " at " + company + " with " + str(ai_yrs) + " years in " + domain + ".",
-            pfx + title + " at " + company + " with an " + inst + " " + field + " background and " + str(ai_yrs) + " years of " + domain + " experience.",
+            pfx + title + " at " + company + " with " + ("an" if starts_vowel_sound else "a") + " " + inst + " " + field + " background and " + str(ai_yrs) + " years of " + domain + " experience.",
             pfx + "Trained in " + field + " at " + inst + ", now applying " + str(ai_yrs) + " years of " + domain + " expertise as " + title + " at " + company + ".",
         ]
         return templates[h % len(templates)]
@@ -245,9 +246,14 @@ def _build_technical(f, h):
         yrs = ai_mo // 12
         parts.append(str(yrs) + " year" + ("s" if yrs != 1 else "") + " in AI/ML roles")
 
-    # Vector DB
-    if vec and "vector" not in " ".join(parts).lower():
-        parts.append("hands-on vector DB experience")
+    # Vector DB — only mention when distinctive (skip if deep retrieval already established)
+    if vec and "vector" not in " ".join(parts).lower() and r_mo < 24:
+        vec_phrases = [
+            "hands-on vector DB experience",
+            "practical vector search exposure",
+            "includes vector database work",
+        ]
+        parts.append(vec_phrases[h % len(vec_phrases)])
 
     # Coherence flag (only if notably low and has enough skills to judge)
     if coherence < 0.2 and jd_ct >= 3:
