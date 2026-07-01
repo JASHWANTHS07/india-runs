@@ -134,6 +134,12 @@ def main() -> None:
         help="Ranking method: 'heuristic' (original) or 'xgboost' (LTR)",
     )
     parser.add_argument(
+        "--top-k",
+        type=int,
+        default=100,
+        help="Number of top candidates to output (default: 100)",
+    )
+    parser.add_argument(
         "--install",
         action="store_true",
         help="Run pip install of dependencies before starting",
@@ -194,8 +200,9 @@ def main() -> None:
         "--artifacts", str(artifacts),
         "--out", args.out,
         "--method", args.method,
+        "--top-k", str(args.top_k),
     ]
-    run(rank_cmd, f"Step 2/2: Ranking (CPU — {args.method} → top 100)")
+    run(rank_cmd, f"Step 2/2: Ranking (CPU — {args.method} → top {args.top_k})")
 
     print(f"\n{'='*60}")
     print(f"  DONE")
