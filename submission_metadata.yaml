@@ -24,9 +24,10 @@ sandbox_link: "https://colab.research.google.com/github/JASHWANTHS07/india-runs/
 # Google Colab notebook — clones repo, extracts dataset, runs full pipeline end-to-end.
 # For small-sample sandbox: python run_pipeline.py --run_sample sample_candidates.json --out sample_output.csv
 
-reproduce_command: "python src/rank.py --artifacts ./artifacts --out ./jashwanth_s.csv"
+reproduce_command: "python src/rank.py --artifacts ./artifacts --out ./jashwanth_s.csv --method xgboost"
 # Ranking step only — runs in <3 min on CPU with 16GB RAM, no GPU, no network.
 # Pre-computation (GPU): python src/precompute.py --candidates candidates.jsonl --artifacts ./artifacts
+# Full pipeline: python run_pipeline.py --candidates candidates.jsonl --artifacts ./artifacts --out ./jashwanth_s.csv --method xgboost
 
 # ============================================================================
 # Compute environment
@@ -40,7 +41,9 @@ compute:
   uses_gpu_for_inference: false          # Ranking step is CPU-only
   has_network_during_ranking: false      # No API calls during ranking
   pre_computation_required: true         # Embeddings + BM25 + cross-encoder computed on GPU
-  pre_computation_time_minutes: 20       # ~20 min on Colab T4
+  pre_computation_time_minutes: 15       # ~15 min on Colab T4
+  ranking_time_minutes: 3                # <3 min CPU-only, no GPU, no network
+  peak_ram_gb: 4                         # Ranking phase uses <1GB; embedding phase ~4GB
 
 # ============================================================================
 # AI tools declaration
@@ -60,20 +63,37 @@ ai_usage_summary: |
 # Approach summary
 # ============================================================================
 methodology_summary: |
-  Two-level hybrid retrieval + learning-to-rank pipeline. GPU precompute phase
-  embeds 100K candidates with BAAI/bge-large-en-v1.5, computes BM25 sparse
-  scores, and re-ranks top-1000 with cross-encoder/ms-marco-MiniLM-L-6-v2.
-  66 structured features extracted per candidate across 8 categories: title
-  relevance, career depth in AI/retrieval, education quality, ML certifications,
-  career trajectory/stability, skill-career coherence (detecting keyword
-  stuffers), behavioral signals, and honeypot indicators. Level 1 hard-filters
-  on technical_yoe >= 5 (excluding consulting firm time). Level 2 trains
-  XGBoost LTR (rank:pairwise) with Optuna-tuned hyperparameters on the
-  qualified pool using domain-focused pseudo-relevance labels. Reasoning is
-  feature-grounded with diverse leads (notable employers, education, retrieval
-  depth) and explicit JD-connection phrases — zero hallucination risk.
-  Honeypots zero-scored post-LTR. Runtime: ~20 min GPU precompute, <3 min
-  CPU ranking.
+  Two-phase hybrid retrieval + learning-to-rank pipeline with multiplicative
+  scoring architecture. GPU precompute phase embeds 100K candidates with
+  BAAI/bge-large-en-v1.5, computes BM25 sparse scores, re-ranks top-1000
+  with cross-encoder/ms-marco-MiniLM-L-6-v2, and extracts 76 structured
+  features per candidate across 8 categories: title relevance, career depth
+  in AI/retrieval, education quality, ML certifications, career trajectory/
+  stability, skill-career coherence (detecting keyword stuffers), behavioral
+  signals, and 8 honeypot indicators. CPU ranking phase uses multiplicative
+  scoring: score = relevance_gate x technical_core x fit_multiplier x
+  behavioral x availability. XGBoost LTR (rank:pairwise, 78 features) trained
+  on pseudo-relevance labels (0-4 graded), Optuna-tuned (50 trials), blended
+  60/40 with heuristic scores for discrimination. 8-rule honeypot detection
+  catches ~19% of dataset (inverted salaries, impossible timelines, expert-
+  zero-usage, assessment gaps, template summaries, ghost profiles). Reasoning
+  is feature-grounded with 5 lead rotation variants and JD phrase rotation —
+  zero hallucination risk. Runtime: ~15 min GPU precompute, <3 min CPU ranking.
+
+scoring_formula: |
+  score = relevance_gate x technical_core x fit_multiplier x behavioral x availability
+  relevance_gate = 0.35*title + 0.45*career_depth + 0.20*coherence (gate at 0.08)
+  technical_core = 0.35*retrieval_depth + 0.25*production_depth + 0.15*vector_db + 0.10*shipped + 0.15*semantic_sim
+  fit_multiplier = max(0.3, 0.50*experience_fit + 0.50*skills_fit)
+  behavioral = clamp(0.7, 1.2, behavioral_score)
+  availability = notice_factor x location_factor
+
+evaluation_metric: "0.50*NDCG@10 + 0.30*NDCG@50 + 0.15*MAP + 0.05*P@10"
+
+feature_count: 76
+ltr_feature_count: 78
+honeypot_rules: 8
+test_count: 42
 
 # ============================================================================
 # Declarations
